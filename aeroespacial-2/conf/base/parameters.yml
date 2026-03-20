@@ -1,0 +1,27 @@
+data_ingestion:
+  # Path to the directory where each subdirectory is one flight recording
+  raw_data_dir: "data/01_raw/processed"
+  # Raw IMU topic to discard in favor of the processed/filtered IMU
+  imu_source_to_discard: "imu-data_raw"
+
+data_preparation:
+  # Remove the first N seconds of each flight (sensor initialization artifacts)
+  cut_seconds: 1.0
+
+model_training:
+  # Number of timesteps per sliding window.
+  # At ~100 Hz sampling, 20 timesteps = 0.2 seconds of temporal context.
+  window_size: 20
+  # Fraction of the dataset the Isolation Forest assumes are anomalies.
+  # This sets the decision threshold — the main tuning lever.
+  # Lower → fewer alerts (higher precision, lower recall)
+  # Higher → more alerts (lower precision, higher recall)
+  contamination: 0.06
+  # Number of isolation trees. More = more stable, slower to train.
+  n_estimators: 100
+  # Number of top features selected via Random Forest importance ranking
+  n_top_features: 10
+  # Fraction of the combined dataset used for training (temporal split, no shuffle)
+  train_ratio: 0.7
+  target_col: "target_fault"
+  timestamp_col: "timestamp"

@@ -1,4 +1,44 @@
-# Here you can define all your datasets by using simple YAML syntax.
+# Data Catalog — aeroespacial_2
+# Documentation: https://docs.kedro.org/en/stable/data/data_catalog.html
 #
-# Documentation for this file format can be found in "The Data Catalog"
-# Link: https://docs.kedro.org/en/stable/data/data_catalog.html
+# Data layer convention:
+#   01_raw          → raw flight recordings (read-only, never modified)
+#   02_intermediate → merged & noise-filtered per-flight DataFrames
+#   03_primary      → fully prepared DataFrames (renamed, cleaned, feature-engineered)
+#   06_models       → trained model artifacts
+#   07_model_output → evaluation metrics and reports
+
+# ---------------------------------------------------------------------------
+# data_ingestion output
+# ---------------------------------------------------------------------------
+
+preprocessed_flights:
+  type: kedro.io.PartitionedDataset
+  path: data/02_intermediate/preprocessed
+  dataset:
+    type: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
+# data_preparation output
+# ---------------------------------------------------------------------------
+
+prepared_flights:
+  type: kedro.io.PartitionedDataset
+  path: data/03_primary
+  dataset:
+    type: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
+# model_training outputs
+# ---------------------------------------------------------------------------
+
+isolation_forest:
+  type: pickle.PickleDataset
+  filepath: data/06_models/isolation_forest.pkl
+  backend: joblib
+
+model_metrics:
+  type: json.JSONDataset
+  filepath: data/07_model_output/metrics.json
