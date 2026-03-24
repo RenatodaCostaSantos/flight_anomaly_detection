@@ -89,7 +89,7 @@ def merge_flight_csvs(flight_dir: str | Path) -> pd.DataFrame:
     dfs = []
     for filename in all_files:
         topic_name = os.path.basename(filename).replace(".csv", "")
-        temp_df = pd.read_csv(filename)
+        temp_df = pd.read_csv(filename, on_bad_lines="skip")
 
         # Keep only numeric columns (ROS topics mix types)
         cols = temp_df.select_dtypes(include=["number"]).columns.tolist()

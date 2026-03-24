@@ -2,13 +2,17 @@
 
 Renames ROS topic columns to human-readable names, removes constant/redundant
 columns identified during EDA, cuts sensor initialization artifacts from the
-start of each flight, and engineers tracking-error features.
+start of each flight, engineers tracking-error features, and filters out
+columns with null or near-null variance across the flight.
 """
 import logging
 
 import pandas as pd
 
 log = logging.getLogger(__name__)
+
+# Columns that must be kept regardless of their variance (structural/target columns)
+PROTECTED_COLS: frozenset[str] = frozenset({"timestamp", "target_fault"})
 
 # ---------------------------------------------------------------------------
 # Column rename mappings
@@ -242,24 +246,63 @@ def rename_final_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns={k: v for k, v in FINAL_RENAME.items() if k in df.columns})
 
 
+def filter_low_variance_columns(
+    df: pd.DataFrame,
+    min_std: float = 0.0,
+) -> pd.DataFrame:
+    """Drop columns with zero or near-zero standard deviation.
+
+    Columns that barely vary across the flight carry no anomaly signal — a
+    constant (or near-constant) sensor reading cannot discriminate normal
+    from faulty behaviour. Columns in PROTECTED_COLS (timestamp, target_fault)
+    are always kept regardless of their variance.
+
+    Args:
+        df: DataFrame after all renaming and feature engineering.
+        min_std: Minimum acceptable standard deviation. Columns whose std is
+            ≤ min_std are dropped. Use 0.0 to remove only truly constant
+            columns; use a small positive value (e.g. 0.01) to also discard
+            near-constant signals.
+
+    Returns:
+        DataFrame with low-variance columns removed.
+    """
+    feature_cols = [c for c in df.columns if c not in PROTECTED_COLS]
+    stds = df[feature_cols].std()
+    to_drop = stds[stds <= min_std].index.tolist()
+    if to_drop:
+        log.info(
+            "filter_low_variance_columns: dropping %d column(s) with std ≤ %s: %s",
+            len(to_drop),
+            min_std,
+            to_drop,
+        )
+    return df.drop(columns=to_drop)
+
+
 def prepare_flight(
     df: pd.DataFrame,
     flight_name: str,
     cut_seconds: float = 1.0,
+    min_std_threshold: float = 0.0,
 ) -> pd.DataFrame:
     """Complete preparation pipeline for a single preprocessed flight.
 
     Applies all preparation steps in the correct order:
-    1. rename_columns        — ROS names → intermediate human-readable names
-    2. remove_redundant_columns — drop constant/step/duplicate columns
-    3. cut_initial_seconds   — remove sensor spin-up artifacts
-    4. create_error_features — add (commanded − measured) error signals
-    5. rename_final_columns  — final standardized naming convention
+    1. rename_columns             — ROS names → intermediate human-readable names
+    2. remove_redundant_columns   — drop constant/step/duplicate columns
+    3. cut_initial_seconds        — remove sensor spin-up artifacts
+    4. create_error_features      — add (commanded − measured) error signals
+    5. rename_final_columns       — final standardized naming convention
+    6. filter_low_variance_columns — drop columns with std ≤ min_std_threshold
 
     Args:
         df: Preprocessed DataFrame from data_ingestion.
         flight_name: Flight identifier (used to strip ROS column prefixes).
         cut_seconds: Seconds to remove from the start of flight.
+        min_std_threshold: Columns with std ≤ this value are dropped.
+            Use 0.0 (default) to remove only truly constant columns;
+            use a small positive value to also discard near-constant signals.
 
     Returns:
         Fully prepared DataFrame ready for model training.
@@ -269,6 +312,7 @@ def prepare_flight(
     df = cut_initial_seconds(df, cut_seconds)
     df = create_error_features(df)
     df = rename_final_columns(df)
+    df = filter_low_variance_columns(df, min_std_threshold)
     log.info("Prepared flight '%s' → shape %s", flight_name, df.shape)
     return df
 
@@ -276,6 +320,7 @@ def prepare_flight(
 def prepare_all_flights(
     preprocessed_flights: dict,
     cut_seconds: float = 1.0,
+    min_std_threshold: float = 0.0,
 ) -> dict[str, pd.DataFrame]:
     """Apply the full preparation pipeline to all preprocessed flights.
 
@@ -285,6 +330,9 @@ def prepare_all_flights(
     Args:
         preprocessed_flights: Dict from data_ingestion (flight_name → df or loader callable).
         cut_seconds: Seconds to cut from the start of each flight.
+        min_std_threshold: Columns with std ≤ this value are dropped per flight.
+            Use 0.0 to remove only truly constant columns; use a small positive
+            value (e.g. 0.01) to also discard near-constant signals.
 
     Returns:
         Dict mapping flight names → fully prepared DataFrames.
@@ -292,7 +340,7 @@ def prepare_all_flights(
     result = {}
     for flight_name, loader in preprocessed_flights.items():
         df = loader() if callable(loader) else loader
-        result[flight_name] = prepare_flight(df, flight_name, cut_seconds)
+        result[flight_name] = prepare_flight(df, flight_name, cut_seconds, min_std_threshold)
 
     log.info("data_preparation complete: %d flights prepared", len(result))
     return result

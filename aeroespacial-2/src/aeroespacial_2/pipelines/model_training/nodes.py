@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.metrics import classification_report
+from sklearn.preprocessing import RobustScaler
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +98,43 @@ def split_windows(
     """
     split = int(len(X) * train_ratio)
     return X[:split], X[split:], y[:split], y[split:]
+
+
+def fit_and_scale(
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, RobustScaler]:
+    """Fit a RobustScaler on training data and transform both splits.
+
+    RobustScaler uses median and IQR instead of mean and std, so anomalous
+    windows present in the training set do not distort the scaling centre.
+    A StandardScaler would shift "normal" toward the anomalies; RobustScaler
+    anchors on the median, which represents normal flight.
+
+    The scaler is fitted exclusively on X_train. Applying it to X_test
+    simulates real deployment where future data is unseen at fit time —
+    fitting on the full dataset would leak test-period anomaly statistics
+    into the model's reference frame.
+
+    The fitted scaler is saved to the catalog so it can be reused at
+    inference time without refitting.
+
+    Args:
+        X_train: Training feature matrix (n_samples, n_features).
+        X_test:  Test feature matrix  (n_samples, n_features).
+
+    Returns:
+        X_train_scaled, X_test_scaled, fitted RobustScaler.
+    """
+    scaler = RobustScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    log.info(
+        "RobustScaler fitted on X_train=%s | X_test=%s transformed",
+        X_train.shape,
+        X_test.shape,
+    )
+    return X_train_scaled, X_test_scaled, scaler
 
 
 def train_isolation_forest(

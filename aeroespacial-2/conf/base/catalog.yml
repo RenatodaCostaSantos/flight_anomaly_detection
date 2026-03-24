@@ -4,7 +4,8 @@
 # Data layer convention:
 #   01_raw          → raw flight recordings (read-only, never modified)
 #   02_intermediate → merged & noise-filtered per-flight DataFrames
-#   03_primary      → fully prepared DataFrames (renamed, cleaned, feature-engineered)
+#   03_primary      → fully prepared DataFrames (renamed, cleaned, error features)
+#   04_feature      → feature-engineered DataFrames (physics features + rolling stats)
 #   06_models       → trained model artifacts
 #   07_model_output → evaluation metrics and reports
 
@@ -13,8 +14,8 @@
 # ---------------------------------------------------------------------------
 
 preprocessed_flights:
-  type: kedro.io.PartitionedDataset
-  path: data/02_intermediate/preprocessed
+  type: partitions.PartitionedDataset
+  path: aeroespacial-2/data/02_intermediate/preprocessed
   dataset:
     type: pandas.CSVDataset
   filename_suffix: ".csv"
@@ -24,8 +25,19 @@ preprocessed_flights:
 # ---------------------------------------------------------------------------
 
 prepared_flights:
-  type: kedro.io.PartitionedDataset
-  path: data/03_primary
+  type: partitions.PartitionedDataset
+  path: aeroespacial-2/data/03_primary
+  dataset:
+    type: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
+# feature_engineering output
+# ---------------------------------------------------------------------------
+
+feature_engineered_flights:
+  type: partitions.PartitionedDataset
+  path: aeroespacial-2/data/04_feature
   dataset:
     type: pandas.CSVDataset
   filename_suffix: ".csv"
@@ -34,11 +46,16 @@ prepared_flights:
 # model_training outputs
 # ---------------------------------------------------------------------------
 
+feature_scaler:
+  type: pickle.PickleDataset
+  filepath: aeroespacial-2/data/06_models/feature_scaler.pkl
+  backend: joblib
+
 isolation_forest:
   type: pickle.PickleDataset
-  filepath: data/06_models/isolation_forest.pkl
+  filepath: aeroespacial-2/data/06_models/isolation_forest.pkl
   backend: joblib
 
 model_metrics:
   type: json.JSONDataset
-  filepath: data/07_model_output/metrics.json
+  filepath: aeroespacial-2/data/07_model_output/metrics.json
