@@ -48,11 +48,21 @@ def compute_specific_energy(df: pd.DataFrame) -> pd.DataFrame:
     altitude (or vice versa). This makes energy_specific a *leading*
     indicator, whereas altitude alone is a *lagging* indicator.
 
+    Uses aspd_meas when available; falls back to groundspeed_hud for flights
+    that do not record the nav_info airspeed field.
+
     New column:
         energy_specific  [m]
     """
     df = df.copy()
-    df["energy_specific"] = df["alt_global"] + df["aspd_meas"] ** 2 / (2 * G)
+    if "aspd_meas" in df.columns:
+        airspeed = df["aspd_meas"]
+    elif "groundspeed_hud" in df.columns:
+        log.warning("aspd_meas not found — falling back to groundspeed_hud for energy_specific")
+        airspeed = df["groundspeed_hud"]
+    else:
+        raise KeyError("Neither 'aspd_meas' nor 'groundspeed_hud' found in DataFrame")
+    df["energy_specific"] = df["alt_global"] + airspeed ** 2 / (2 * G)
     return df
 
 

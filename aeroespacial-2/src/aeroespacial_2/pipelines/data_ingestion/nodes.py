@@ -175,6 +175,7 @@ def filter_noise_columns(
 def load_all_flights(
     raw_data_dir: str,
     imu_source_to_discard: str = "imu-data_raw",
+    flight_keywords: list[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Load, merge, and filter all flights from the raw data directory.
 
@@ -188,6 +189,8 @@ def load_all_flights(
     Args:
         raw_data_dir: Path to directory where each subdirectory is one flight.
         imu_source_to_discard: Raw IMU topic to exclude from every flight.
+        flight_keywords: If provided, only load flights whose directory name
+            contains at least one of these substrings. Set to None to load all.
 
     Returns:
         Dict mapping flight_name → filtered DataFrame (ready for data_preparation).
@@ -195,8 +198,16 @@ def load_all_flights(
     raw_path = Path(raw_data_dir)
     result: dict[str, pd.DataFrame] = {}
 
-    flight_dirs = sorted(p for p in raw_path.iterdir() if p.is_dir())
-    log.info("Found %d flight directories in '%s'", len(flight_dirs), raw_data_dir)
+    all_dirs = sorted(p for p in raw_path.iterdir() if p.is_dir())
+    if flight_keywords:
+        flight_dirs = [p for p in all_dirs if any(kw in p.name for kw in flight_keywords)]
+        log.info(
+            "Filtered %d/%d flight directories using keywords %s",
+            len(flight_dirs), len(all_dirs), flight_keywords,
+        )
+    else:
+        flight_dirs = all_dirs
+        log.info("Found %d flight directories in '%s'", len(flight_dirs), raw_data_dir)
 
     for flight_dir in flight_dirs:
         flight_name = flight_dir.name

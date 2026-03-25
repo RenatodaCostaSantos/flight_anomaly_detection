@@ -3,6 +3,11 @@ data_ingestion:
   raw_data_dir: "aeroespacial-2/data/01_raw/processed"
   # Raw IMU topic to discard in favor of the processed/filtered IMU
   imu_source_to_discard: "imu-data_raw"
+  # Only load flights whose directory name contains at least one of these keywords.
+  # Set to null to load all flights.
+  flight_keywords:
+    - "engine_failure"
+    - "no_failure"
 
 data_preparation:
   # Remove the first N seconds of each flight (sensor initialization artifacts)

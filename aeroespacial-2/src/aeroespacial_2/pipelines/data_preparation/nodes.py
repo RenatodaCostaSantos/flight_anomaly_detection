@@ -312,6 +312,8 @@ def prepare_flight(
     df = cut_initial_seconds(df, cut_seconds)
     df = create_error_features(df)
     df = rename_final_columns(df)
+    if "target_fault" not in df.columns:
+        df["target_fault"] = 0
     df = filter_low_variance_columns(df, min_std_threshold)
     log.info("Prepared flight '%s' → shape %s", flight_name, df.shape)
     return df

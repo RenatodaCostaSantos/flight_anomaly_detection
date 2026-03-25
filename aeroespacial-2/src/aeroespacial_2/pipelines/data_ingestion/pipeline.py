@@ -12,6 +12,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                 inputs=[
                     "params:data_ingestion.raw_data_dir",
                     "params:data_ingestion.imu_source_to_discard",
+                    "params:data_ingestion.flight_keywords",
                 ],
                 outputs="preprocessed_flights",
                 name="load_all_flights_node",

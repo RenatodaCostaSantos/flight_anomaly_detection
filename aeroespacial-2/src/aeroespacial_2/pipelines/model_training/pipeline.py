@@ -10,7 +10,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             node(
                 func=build_training_data,
                 inputs=[
-                    "prepared_flights",
+                    "feature_engineered_flights",
                     "params:model_training.window_size",
                     "params:model_training.n_top_features",
                     "params:model_training.train_ratio",
@@ -23,7 +23,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "y_train",
                     "y_test",
                     "test_timestamps",
-                    "selected_features",
+                    "selected_features",  # persisted to 06_models/selected_features.json
                 ],
                 name="build_training_data_node",
             ),

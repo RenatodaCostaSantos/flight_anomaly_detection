@@ -251,7 +251,7 @@ def build_training_data(
     Pipeline:
     1. Concatenate all flights.
     2. Select top N features via Random Forest importance.
-    3. Create sliding-window feature matrix.
+    3. Create sliding-window feature matrix per flight (avoids cross-flight boundary windows).
     4. Temporal train/test split.
 
     Args:
@@ -270,14 +270,21 @@ def build_training_data(
         df = loader() if callable(loader) else loader
         dfs.append(df)
 
-    combined = pd.concat(dfs, ignore_index=True)
+    combined = pd.concat(dfs, join="inner", ignore_index=True)
     log.info("Combined dataset shape: %s", combined.shape)
 
     features = [c for c in combined.columns if c not in [target_col, timestamp_col]]
     top_features = select_top_features_rf(combined, features, target_col, n_top_features)
 
-    X, y = create_windows(combined, window_size, top_features, target_col)
-    timestamps = combined[timestamp_col].values[window_size:]
+    all_X, all_y, all_ts = [], [], []
+    for df in dfs:
+        Xi, yi = create_windows(df, window_size, top_features, target_col)
+        all_X.append(Xi)
+        all_y.append(yi)
+        all_ts.append(df[timestamp_col].values[window_size:])
+    X = np.concatenate(all_X)
+    y = np.concatenate(all_y)
+    timestamps = np.concatenate(all_ts)
 
     X_train, X_test, y_train, y_test = split_windows(X, y, train_ratio)
     split_idx = int(len(timestamps) * train_ratio)

@@ -59,3 +59,7 @@ isolation_forest:
 model_metrics:
   type: json.JSONDataset
   filepath: aeroespacial-2/data/07_model_output/metrics.json
+
+selected_features:
+  type: json.JSONDataset
+  filepath: aeroespacial-2/data/06_models/selected_features.json
