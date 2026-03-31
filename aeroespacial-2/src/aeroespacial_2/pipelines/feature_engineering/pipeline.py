@@ -12,6 +12,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                 inputs=[
                     "prepared_flights",
                     "params:feature_engineering.rolling_windows",
+                    "params:feature_engineering.fft_windows",
                 ],
                 outputs="feature_engineered_flights",
                 name="engineer_features_for_all_flights_node",

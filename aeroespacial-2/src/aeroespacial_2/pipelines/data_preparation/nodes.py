@@ -110,20 +110,26 @@ FINAL_RENAME: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 COLUMNS_TO_DROP: list[str] = [
-    # Constant during flight (battery readings, global status flags)
-    "batt_current", "batt_pct", "battery.power_supply_status", "batt_voltage",
+    # Constant during flight (battery metadata, global status flags)
+    # NOTE: batt_current, batt_voltage, and hud_throttle were previously dropped
+    # as "constant", but they carry direct motor-state information (current drops to
+    # zero at motor failure; throttle stays high while motor is off) and are now
+    # retained for anomaly detection and FFT spectral analysis.
+    "batt_pct", "battery.power_supply_status",
     "global.status.status",
     "local.twist.twist.angular.x", "local.twist.twist.angular.y", "local.twist.twist.angular.z",
     "target_global.yaw", "path_dev_x",
-    # Step-change / discontinuous signals (IMU orientation quaternions, angular rates)
+    # Step-change / discontinuous signals (IMU orientation quaternions and angular rates)
+    # NOTE: imu_accel_x/y/z (linear accelerations) are retained — they capture
+    # structural vibration from the motor/propeller and are well-suited for FFT
+    # analysis. Only quaternion and angular-rate channels are dropped here.
     "imu_gyro_x", "imu_gyro_y", "imu_gyro_z",
-    "imu_accel_x", "imu_accel_y", "imu_accel_z",
     "data.orientation.w", "data.orientation.x", "data.orientation.y", "data.orientation.z",
     "odom.orientation.w", "odom.orientation.x", "odom.orientation.y", "odom.orientation.z",
     "odom.twist.twist.angular.x", "odom.twist.twist.angular.y", "odom.twist.twist.angular.z",
     "orientation.w", "orientation.x", "orientation.y", "orientation.z",
     "velocity.twist.angular.x", "velocity.twist.angular.y", "velocity.twist.angular.z",
-    "hud_climb_rate", "vfr_hud.heading", "hud_throttle", "ctrl_roll", "ctrl_pitch",
+    "hud_climb_rate", "vfr_hud.heading", "ctrl_roll", "ctrl_pitch",
     "local.orientation.w", "local.orientation.x", "local.orientation.y", "local.orientation.z",
     # Redundant: duplicated position/velocity across odometry sources
     "target_global.velocity.x", "target_global.velocity.y",

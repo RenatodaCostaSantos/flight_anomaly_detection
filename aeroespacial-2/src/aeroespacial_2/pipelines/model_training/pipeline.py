@@ -16,6 +16,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "params:model_training.train_ratio",
                     "params:model_training.target_col",
                     "params:model_training.timestamp_col",
+                    "params:model_training.skip_seconds",
                 ],
                 outputs=[
                     "X_train",
@@ -39,6 +40,8 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "X_train_scaled",
                     "params:model_training.contamination",
                     "params:model_training.n_estimators",
+                    "params:model_training.max_samples",
+                    "params:model_training.max_features",
                 ],
                 outputs="isolation_forest",
                 name="train_isolation_forest_node",

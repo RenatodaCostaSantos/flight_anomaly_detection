@@ -8,7 +8,7 @@ import logging
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import IsolationForest, RandomForestClassifier
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import classification_report
 from sklearn.preprocessing import RobustScaler
 
@@ -47,33 +47,56 @@ def create_windows(
     return np.array(X), np.array(y)
 
 
-def select_top_features_rf(
+def select_top_features_effect_size(
     df: pd.DataFrame,
     features: list[str],
     target_col: str,
     n_top: int = 10,
 ) -> list[str]:
-    """Rank features by Random Forest importance and return the top N.
+    """Rank features by Cohen's d effect size and return the top N.
 
-    A supervised Random Forest is used here purely as a feature ranker —
-    it exploits the labeled data to identify which signals change most
-    discriminatively at fault onset, reducing the window dimension and
-    improving Isolation Forest's unsupervised detection.
+    For each feature, computes how strongly its distribution differs between
+    normal (target=0) and fault (target=1) windows:
+
+        Cohen's d = |mean_fault − mean_normal| / pooled_std
+
+    This directly answers the question the Isolation Forest needs answered:
+    "which features have the most different distribution in fault vs normal
+    flight?" — regardless of *when* within the fault period they change.
+
+    Advantages over Random Forest importance:
+    - Non-parametric in spirit: does not assume linear or tree-based structure
+    - Robust to class imbalance (normalises by within-group spread)
+    - Does not reward temporal autocorrelation or spurious correlations with
+      the *timing* of faults (a problem with lookahead-shifted labels)
+    - Computationally lightweight: O(n × p) vs O(n × p × n_estimators)
+
+    Features with zero pooled standard deviation (constant columns that
+    survived earlier filtering) receive score 0 and sink to the bottom.
 
     Args:
-        df: Prepared DataFrame.
+        df: Combined DataFrame with all flights concatenated.
         features: Candidate feature column names.
-        target_col: Binary fault label column.
+        target_col: Binary fault label column (0 = normal, 1 = fault).
         n_top: Number of top features to return.
 
     Returns:
-        List of the N most important feature names.
+        List of the N features with the largest Cohen's d effect size.
     """
-    rf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-    rf.fit(df[features], df[target_col])
-    importances = pd.Series(rf.feature_importances_, index=features)
-    top = importances.nlargest(n_top).index.tolist()
-    log.info("Top %d features selected: %s", n_top, top)
+    normal = df.loc[df[target_col] == 0, features]
+    fault  = df.loc[df[target_col] == 1, features]
+
+    mean_diff = (fault.mean() - normal.mean()).abs()
+
+    # Pooled standard deviation: sqrt(((n0-1)*s0² + (n1-1)*s1²) / (n0+n1-2))
+    n0, n1 = len(normal), len(fault)
+    pooled_std = np.sqrt(
+        ((n0 - 1) * normal.std() ** 2 + (n1 - 1) * fault.std() ** 2) / (n0 + n1 - 2)
+    ).replace(0, np.nan)
+
+    scores = (mean_diff / pooled_std).fillna(0)
+    top = scores.nlargest(n_top).index.tolist()
+    log.info("Top %d features by Cohen's d: %s", n_top, top)
     return top
 
 
@@ -141,6 +164,8 @@ def train_isolation_forest(
     X_train: np.ndarray,
     contamination: float = 0.06,
     n_estimators: int = 100,
+    max_samples: int | str = 128,
+    max_features: float | int = 1.0,
     random_state: int = 42,
 ) -> IsolationForest:
     """Train an Isolation Forest anomaly detector on normal flight windows.
@@ -162,13 +187,15 @@ def train_isolation_forest(
     model = IsolationForest(
         n_estimators=n_estimators,
         contamination=contamination,
+        max_samples=max_samples,
+        max_features=max_features,
         random_state=random_state,
         n_jobs=-1,
     )
     model.fit(X_train)
     log.info(
-        "IsolationForest trained | contamination=%.3f | n_estimators=%d | X_train=%s",
-        contamination, n_estimators, X_train.shape,
+        "IsolationForest trained | contamination=%.3f | n_estimators=%d | max_samples=%s | max_features=%s | X_train=%s",
+        contamination, n_estimators, max_samples, max_features, X_train.shape,
     )
     return model
 
@@ -241,6 +268,7 @@ def build_training_data(
     train_ratio: float,
     target_col: str,
     timestamp_col: str,
+    skip_seconds: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Combine all prepared flights, select features, create windows, and split.
 
@@ -249,10 +277,20 @@ def build_training_data(
     (as opposed to per-flight models).
 
     Pipeline:
-    1. Concatenate all flights.
-    2. Select top N features via Random Forest importance.
-    3. Create sliding-window feature matrix per flight (avoids cross-flight boundary windows).
-    4. Temporal train/test split.
+    1. Skip initial transient phase (skip_seconds) from each flight.
+    2. Concatenate all flights.
+    3. Select top N features by Cohen's d effect size (fault vs normal distribution).
+    4. Create sliding-window feature matrix per flight (avoids cross-flight boundary windows).
+    5. Temporal train/test split.
+
+    **Why skip_seconds?**
+    Recordings begin mid-flight, with the aircraft descending from an above-cruise
+    altitude to its cruise setpoint (~50 m). During this descent, energy_specific,
+    alt_global and their rolling derivatives are outside the cruise distribution —
+    the same values they take during a motor failure. The Isolation Forest scores
+    these windows as anomalous, producing false alarms at the very start of each
+    flight. Skipping the first 15 s removes the transition phase while retaining
+    all cruise and fault data.
 
     Args:
         prepared_flights: Dict from data_preparation (may contain callables from PartitionedDataset).
@@ -261,6 +299,9 @@ def build_training_data(
         train_ratio: Temporal train/test split fraction.
         target_col: Binary fault label column name.
         timestamp_col: Timestamp column name.
+        skip_seconds: Seconds to skip from the start of each flight before building
+            windows. Applied to both training and evaluation data.
+            0.0 (default) disables the skip.
 
     Returns:
         X_train, X_test, y_train, y_test, test_timestamps, selected_features
@@ -268,13 +309,15 @@ def build_training_data(
     dfs = []
     for name, loader in prepared_flights.items():
         df = loader() if callable(loader) else loader
+        if skip_seconds > 0.0:
+            df = df[df[timestamp_col] >= skip_seconds].copy()
         dfs.append(df)
 
     combined = pd.concat(dfs, join="inner", ignore_index=True)
-    log.info("Combined dataset shape: %s", combined.shape)
+    log.info("Combined dataset shape (after skip): %s", combined.shape)
 
     features = [c for c in combined.columns if c not in [target_col, timestamp_col]]
-    top_features = select_top_features_rf(combined, features, target_col, n_top_features)
+    top_features = select_top_features_effect_size(combined, features, target_col, n_top_features)
 
     all_X, all_y, all_ts = [], [], []
     for df in dfs:
