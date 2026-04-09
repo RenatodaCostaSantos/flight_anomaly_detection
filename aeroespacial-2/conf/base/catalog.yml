@@ -21,6 +21,28 @@ preprocessed_flights:
   filename_suffix: ".csv"
 
 # ---------------------------------------------------------------------------
+# fft_ingestion output
+# ---------------------------------------------------------------------------
+
+fft_ready_flights:
+  type: partitions.PartitionedDataset
+  path: aeroespacial-2/data/02_intermediate/fft_ready
+  dataset:
+    type: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
+# fft_data_preparation output
+# ---------------------------------------------------------------------------
+
+fft_prepared_flights:
+  type: partitions.PartitionedDataset
+  path: aeroespacial-2/data/03_primary/fft
+  dataset:
+    type: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
 # data_preparation output
 # ---------------------------------------------------------------------------
 
@@ -41,6 +63,39 @@ feature_engineered_flights:
   dataset:
     type: pandas.CSVDataset
   filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
+# fft_feature_engineering output
+# ---------------------------------------------------------------------------
+
+fft_feature_engineered_flights:
+  type: partitions.PartitionedDataset
+  path: aeroespacial-2/data/04_feature/fft
+  dataset:
+    type: pandas.CSVDataset
+  filename_suffix: ".csv"
+
+# ---------------------------------------------------------------------------
+# fft_model_training outputs
+# ---------------------------------------------------------------------------
+
+fft_feature_scaler:
+  type: pickle.PickleDataset
+  filepath: aeroespacial-2/data/06_models/fft_feature_scaler.pkl
+  backend: joblib
+
+fft_isolation_forest:
+  type: pickle.PickleDataset
+  filepath: aeroespacial-2/data/06_models/fft_isolation_forest.pkl
+  backend: joblib
+
+fft_model_metrics:
+  type: json.JSONDataset
+  filepath: aeroespacial-2/data/07_model_output/fft_metrics.json
+
+fft_selected_features:
+  type: json.JSONDataset
+  filepath: aeroespacial-2/data/06_models/fft_selected_features.json
 
 # ---------------------------------------------------------------------------
 # model_training outputs

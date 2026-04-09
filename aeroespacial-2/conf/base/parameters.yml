@@ -9,13 +9,34 @@ data_ingestion:
     - "engine_failure"
     - "no_failure"
 
+fft_ingestion:
+  # Path to the directory where each subdirectory is one flight recording
+  raw_data_dir: "aeroespacial-2/data/01_raw/processed"
+  # Raw IMU topic to discard in favor of the processed/filtered IMU
+  imu_source_to_discard: "imu-data_raw"
+  # Only load flights whose directory name contains at least one of these keywords.
+  # Set to null to load all flights.
+  flight_keywords:
+    - "engine_failure"
+    - "no_failure"
+  # Substring patterns to match in ROS column names for FFT feature selection.
+  # A column is kept if its name contains ANY of these patterns.
+  # Signals with a direct physical link to motor rotation frequency are included,
+  # plus altitude as the single time-domain exception (monotonic decline at failure).
+  fft_relevant_patterns:
+    - "imu-data_field.linear_acceleration" # IMU accel x/y/z — motor vibration
+    - "mag_field.magnetic"                # Magnetometer x/y/z — motor EM field
+    - "airspeed_field.measured"           # Airspeed — thrust ripple oscillations
+    - "global_field.altitude"             # Altitude — única feature time-domain (declínio na falha)
+    - "failure_status"                    # Motor failure label (always keep)
+
 data_preparation:
   # Remove the first N seconds of each flight (sensor initialization artifacts)
   cut_seconds: 1.0
   # Columns with std ≤ this threshold are removed (null or near-null variation).
   # Use 0.0 to drop only truly constant columns.
   # Increase (e.g. 0.01) to also discard near-constant signals.
-  min_std_threshold: 0.0
+  min_std_threshold: 0.0001
 
 feature_engineering:
   # Rolling window sizes in samples.
@@ -27,6 +48,36 @@ feature_engineering:
   # of at least ~500 samples. Small windows (50–200) only capture high-frequency noise.
   # 500 ≈ 1 s  |  1000 ≈ 2 s  |  2000 ≈ 4 s
   fft_windows: [500, 1000, 2000]
+
+fft_feature_engineering:
+  # Rolling window sizes in samples.
+  # FFT data sampling: ~200 Hz average (merged ROS topics after merge_asof).
+  # 50 ≈ 0.25 s  |  100 ≈ 0.5 s  |  200 ≈ 1 s
+  rolling_windows: [50, 100, 200]
+  # Window sizes in samples for FFT spectral features (peak power, entropy, high-freq ratio).
+  # Engine-failure precursors appear at 0.1–2 Hz — requiring large windows to resolve
+  # spectral structure at those frequencies.
+  # 500 ≈ 2.5 s  |  1000 ≈ 5 s  |  2000 ≈ 10 s
+  fft_windows: [500, 1000, 2000]
+
+fft_model_training:
+  # Number of timesteps per sliding window.
+  # At ~200 Hz FFT sampling, 20 timesteps = 0.1 seconds of temporal context.
+  window_size: 20
+  # Fraction of the dataset the Isolation Forest assumes are anomalies.
+  contamination: 0.03
+  # Number of isolation trees.
+  n_estimators: 100
+  max_samples: 128
+  max_features: 1.0
+  # Number of top features selected via Cohen's d effect size
+  n_top_features: 20
+  # Fraction of the combined dataset used for training (temporal split, no shuffle)
+  train_ratio: 0.7
+  target_col: "target_fault"
+  timestamp_col: "timestamp"
+  # Seconds to skip from the start of each flight before building windows.
+  skip_seconds: 20.0
 
 model_training:
   # Number of timesteps per sliding window.
