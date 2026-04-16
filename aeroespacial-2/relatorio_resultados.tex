@@ -1,0 +1,360 @@
+\documentclass[12pt, a4paper]{article}
+
+% ── Codificação e língua ──────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+
+% ── Layout ────────────────────────────────────────────────────────────────────
+\usepackage[top=2.5cm, bottom=2.5cm, left=3cm, right=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% ── Tabelas ───────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{makecell}   % \thead, \makecell
+
+% ── Cores ─────────────────────────────────────────────────────────────────────
+\usepackage[table]{xcolor}
+\definecolor{azul}      {RGB}{20,  60,  120}
+\definecolor{verdebg}   {RGB}{220, 240, 220}
+\definecolor{verdedark} {RGB}{34,  120,  34}
+\definecolor{vermbg}    {RGB}{255, 220, 220}
+\definecolor{vermdark}  {RGB}{160,  30,  30}
+\definecolor{amarbg}    {RGB}{255, 240, 200}
+\definecolor{amardark}  {RGB}{140, 100,  10}
+\definecolor{cinzahd}   {RGB}{80,   80,  80}
+\definecolor{azulhd}    {RGB}{245, 249, 255}
+\definecolor{azulhd2}   {RGB}{230, 238, 252}
+
+% ── Hiperlinks ────────────────────────────────────────────────────────────────
+\usepackage[colorlinks=true, linkcolor=azul, citecolor=azul, urlcolor=azul]{hyperref}
+
+% ── Captions e floats ─────────────────────────────────────────────────────────
+\usepackage{caption}
+\usepackage{float}
+\captionsetup{font=small, labelfont=bf}
+
+% Permite que LaTeX estique espaçamento para evitar overfull em blocos \texttt
+\setlength{\emergencystretch}{3em}
+
+% ── Comandos de conveniência ──────────────────────────────────────────────────
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+
+% Célula colorida de matriz de confusão
+\newcommand{\cmTP}[1]{\cellcolor{verdebg}\color{verdedark}\textbf{TP = #1}}
+\newcommand{\cmTN}[1]{\cellcolor{verdebg}\color{verdedark}\textbf{TN = #1}}
+\newcommand{\cmFP}[1]{\cellcolor{vermbg}\color{vermdark}\textbf{FP = #1}}
+\newcommand{\cmFN}[1]{\cellcolor{vermbg}\color{vermdark}\textbf{FN = #1}}
+
+% Células de resultado na tabela por voo
+\newcommand{\resTP} {\cellcolor{verdebg}\color{verdedark}\textbf{TP}}
+\newcommand{\resFN} {\cellcolor{vermbg}\color{vermdark}\textbf{FN}}
+\newcommand{\resFPa}{\cellcolor{amarbg}\color{amardark}\textbf{FP antes}}
+\newcommand{\resFP} {\cellcolor{vermbg}\color{vermdark}\textbf{FP}}
+\newcommand{\resTN} {\cellcolor{verdebg}\color{verdedark}\textbf{TN}}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+\title{\textbf{Detecção de Falha de Motor em VANTs com\\Aprendizado de Máquina}}
+\author{}
+\date{}
+\maketitle
+\thispagestyle{empty}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Ideia central}
+% ══════════════════════════════════════════════════════════════════════════════
+
+O projeto desenvolve um sistema de detecção automática de falha de motor em voo
+para uma aeronave não tripulada de asa fixa (CarbonZ). A motivação é crítica: em
+voo autônomo, identificar o momento exato da perda de tração com latência mínima
+é o que viabiliza uma resposta de emergência eficaz --- seja um pouso de
+emergência ou um comando de autorrotação. O conjunto de dados conta com 33~voos
+registrados em formato ROS, sendo 23 com falhas induzidas de motor e 10 voos
+normais, com dados de múltiplos sensores coletados a ${\sim}520$~Hz.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Metodologia}
+% ══════════════════════════════════════════════════════════════════════════════
+
+A solução foi construída como um \textit{pipeline} Kedro completo, cobrindo desde
+a ingestão dos tópicos ROS (com alinhamento temporal entre sensores via
+\texttt{merge\_asof}) até o treinamento dos modelos. Foram desenvolvidas duas
+trilhas paralelas de engenharia de \textit{features}: a primeira
+(\texttt{all\_features}) extrai grandezas físicas como energia específica,
+esforço de controle e razão de planeio, além de estatísticas em janelas
+deslizantes (média, desvio-padrão e inclinação linear); a segunda
+(\texttt{fft\_features}) opera no domínio da frequência, extraindo potência de
+pico, entropia espectral e razão de alta frequência dos sinais do IMU e
+magnetômetro. A seleção das 20 melhores \textit{features} foi feita pelo
+$d$~de~Cohen, que mede a separabilidade entre as distribuições em voo normal e
+em falha sem o viés de autocorrelação temporal que afetaria a importância de
+\textit{Random~Forest}. O modelo escolhido foi \textit{Isolation Forest},
+treinado com janelas deslizantes de 20 amostras por ponto, no regime não
+supervisionado --- adequado à escassez de exemplos rotulados de falha.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Resultados e \textit{trade-off} entre os modelos}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Os dois modelos têm perfis de erro opostos, o que revela que capturam fenômenos
+físicos distintos. O modelo \texttt{all\_features} detectou 16 das 23~falhas
+(69{,}6\%) com latência mediana de 3{,}15~s, reagindo às \textit{consequências}
+da falha: queda de energia, divergência entre \textit{throttle} e velocidade,
+acúmulo de erros de controle. Seu ponto fraco é a baixa revocação na classe de
+falha (18{,}4\%) --- ele é conservador e tende a silenciar em casos ambíguos.
+
+O modelo \texttt{fft\_features} detectou 15~falhas (65{,}2\%) com latência
+mediana de 2{,}64~s, mas a maioria das detecções ocorreu \textit{antes} do
+momento oficial da falha --- o que sugere que ele captura a assinatura de
+vibração e caos espectral da degradação do motor como \textit{precursor}, não
+como consequência. O custo é alto: 60\% dos voos normais geraram ao menos um
+alarme falso no \texttt{all\_features}, contra 30\% no \texttt{fft\_features}.
+
+Em termos de aplicação, o \texttt{all\_features} é preferível quando a
+confiabilidade operacional importa mais --- cada alarme tem alta probabilidade de
+ser real. Já o \texttt{fft\_features} é mais adequado em contextos de detecção
+precoce tolerantes a falsos positivos, por exemplo como primeiro estágio de um
+sistema em cascata onde sua detecção antecipada dispara o \texttt{all\_features}
+como confirmatório. Um \textit{ensemble} com votação ponderada pode combinar a
+sensibilidade espectral do FFT com a especificidade física do
+\texttt{all\_features}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Métricas por modelo e classe (nível de janela)}
+% ══════════════════════════════════════════════════════════════════════════════
+
+A Tabela~\ref{tab:metricas} apresenta as métricas de classificação calculadas
+pela função \texttt{classifi\-cation\_re\-port} do scikit-learn sobre o conjunto
+de teste (últimos 30\% de cada voo, em ordem temporal). O elevado
+\textit{recall} da classe~0 (Normal) no modelo \texttt{all\_features} (0{,}999)
+reflete o comportamento conservador do \textit{Isolation Forest} configurado com
+\texttt{contamination\,=\,0{,}03}: apenas 53 das 93.289 janelas normais são
+erroneamente classificadas como anomalia (taxa de falso positivo por janela de
+0{,}057\%).
+
+\begin{table}[H]
+  \centering
+  \caption{Métricas de classificação por modelo e classe (nível de janela de 20 amostras).}
+  \label{tab:metricas}
+  \begin{tabular}{llccc}
+    \toprule
+    \textbf{Modelo} & \textbf{Classe} & \textbf{Precisão} & \textbf{Recall} & \textbf{F1} \\
+    \midrule
+    \rowcolor{azulhd}
+    \texttt{all\_features} & Normal (0) & 0{,}874 & 0{,}999 & 0{,}932 \\
+    \rowcolor{azulhd}
+    \texttt{all\_features} & Falha  (1) & 0{,}983 & 0{,}184 & 0{,}310 \\
+    \rowcolor{azulhd2}
+    \texttt{fft\_features} & Normal (0) & 0{,}856 & 0{,}955 & 0{,}903 \\
+    \rowcolor{azulhd2}
+    \texttt{fft\_features} & Falha  (1) & 0{,}402 & 0{,}158 & 0{,}227 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Matrizes de confusão --- nível de voo}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Cada voo é classificado como um único evento: se o modelo emitiu alarme durante
+o intervalo de falha, o voo é TP; se nunca emitiu (ou só emitiu antes da janela
+de falha), é~FN. Voos sem falha que geraram ao menos um alarme são FP; os
+demais, TN.
+
+% ─── all_features ─────────────────────────────────────────────────────────────
+\subsection{\texttt{all\_features}}
+
+\noindent
+\textbf{Falhas detectadas:} 16/23 \quad
+\textbf{Falhas perdidas:} 7/23 \quad
+\textbf{Lat.\ média:} 6{,}72~s \quad
+\textbf{Lat.\ mediana:} 3{,}15~s
+
+\vspace{6pt}
+
+\begin{table}[H]
+  \centering
+  \caption{Matriz de confusão (nível de voo) --- \texttt{all\_features}.}
+  \label{tab:cm_all}
+  \begin{tabular}{lcc}
+    \toprule
+    & \textbf{Alarme (positivo)} & \textbf{Silêncio (negativo)} \\
+    \midrule
+    \textbf{Real: com falha} & \cmTP{16} & \cmFN{7} \\
+    \textbf{Real: sem falha} & \cmFP{6}  & \cmTN{4} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\clearpage
+\small
+\begin{longtable}{L{3.4cm}C{1.5cm}C{1.7cm}C{1.5cm}C{2.0cm}C{1.7cm}}
+  \caption{Detalhe por voo com falha --- \texttt{all\_features}.}
+  \label{tab:voos_falha_all} \\
+  \toprule
+  \textbf{Voo} & \textbf{Falha (s)} & \textbf{Detec.\ (s)} & \textbf{Lat.\ (s)} & \textbf{Resultado} & \textbf{FP antes} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{6}{l}{\small\textit{(continuação da Tabela~\ref{tab:voos_falha_all})}} \\
+  \toprule
+  \textbf{Voo} & \textbf{Falha (s)} & \textbf{Detec.\ (s)} & \textbf{Lat.\ (s)} & \textbf{Resultado} & \textbf{FP antes} \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{6}{r}{\small\textit{(continua na próxima página)}} \\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+  2018-07-18 \#1  & 115,3 & ---   & ---   & \resFN  & 0   \\
+  2018-07-18 \#2  & 72,4  & ---   & ---   & \resFN  & 0   \\
+  2018-07-18 EMR  & 115,6 & 117,6 & 1,92  & \resTP  & 0   \\
+  2018-07-18 EMR2 & 113,1 & 115,8 & 2,72  & \resTP  & 0   \\
+  2018-07-30 EMR  & 122,2 & 133,1 & 10,98 & \resTP  & 0   \\
+  2018-07-30 \#1  & 115,8 & ---   & ---   & \resFN  & 0   \\
+  2018-07-30 \#2  & 90,7  & ---   & ---   & \resFPa & 126 \\
+  2018-07-30 EMR2 & 116,2 & 129,1 & 12,91 & \resTP  & 0   \\
+  2018-07-30 EMR3 & 86,7  & 94,0  & 7,34  & \resTP  & 0   \\
+  2018-07-30 EMR4 & 132,5 & 135,4 & 2,92  & \resTP  & 0   \\
+  2018-07-30 EMR5 & 89,4  & 100,5 & 11,16 & \resTP  & 0   \\
+  2018-09-11 \#1  & 102,6 & 103,3 & 0,72  & \resTP  & 0   \\
+  2018-09-11 \#2  & 103,9 & ---   & ---   & \resFN  & 0   \\
+  2018-09-11 \#3  & 48,9  & 59,5  & 10,62 & \resTP  & 0   \\
+  2018-10-05 \#1  & 48,2  & 64,2  & 16,00 & \resTP  & 0   \\
+  2018-10-05 \#2  & 99,1  & 101,7 & 2,58  & \resTP  & 0   \\
+  2018-10-05 \#3  & 75,2  & 91,2  & 15,99 & \resTP  & 0   \\
+  2018-10-18 \#1  & 103,2 & 106,0 & 2,76  & \resTP  & 0   \\
+  2018-10-18 \#2  & 110,1 & 113,1 & 3,00  & \resTP  & 0   \\
+  2018-10-18 \#3  & 99,4  & ---   & ---   & \resFN  & 0   \\
+  2018-10-18 \#4  & 97,3  & ---   & ---   & \resFN  & 0   \\
+  2018-10-18 \#5  & 100,3 & 103,6 & 3,29  & \resTP  & 0   \\
+  2018-10-18 \#6  & 101,6 & 104,2 & 2,66  & \resTP  & 53  \\
+\end{longtable}
+\normalsize
+
+\begin{table}[H]
+  \centering
+  \caption{Detalhe por voo sem falha --- \texttt{all\_features}.}
+  \label{tab:voos_normal_all}
+  \small
+  \begin{tabular}{L{5cm}C{3.5cm}C{2cm}}
+    \toprule
+    \textbf{Voo} & \textbf{Alarmes falsos (janelas)} & \textbf{Resultado} \\
+    \midrule
+    2018-07-18 sem-falha    & 0   & \resTN \\
+    2018-07-30 sem-falha    & 4   & \resFP \\
+    2018-09-11 \#1 sem-falha & 72  & \resFP \\
+    2018-09-11 \#2 sem-falha & 0   & \resTN \\
+    2018-09-11 \#3 sem-falha & 162 & \resFP \\
+    2018-10-05 \#1 sem-falha & 525 & \resFP \\
+    2018-10-05 \#2 sem-falha & 64  & \resFP \\
+    2018-10-05 \#3 sem-falha & 57  & \resFP \\
+    2018-10-05 \#4 sem-falha & 0   & \resTN \\
+    2018-10-18 sem-falha    & 0   & \resTN \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\clearpage
+% ─── fft_features ─────────────────────────────────────────────────────────────
+\subsection{\texttt{fft\_features}}
+
+\noindent
+\textbf{Falhas detectadas:} 15/23 \quad
+\textbf{Falhas perdidas:} 8/23 \quad
+\textbf{Lat.\ média:} 4{,}57~s \quad
+\textbf{Lat.\ mediana:} 2{,}64~s
+
+\vspace{6pt}
+
+\begin{table}[H]
+  \centering
+  \caption{Matriz de confusão (nível de voo) --- \texttt{fft\_features}.}
+  \label{tab:cm_fft}
+  \begin{tabular}{lcc}
+    \toprule
+    & \textbf{Alarme (positivo)} & \textbf{Silêncio (negativo)} \\
+    \midrule
+    \textbf{Real: com falha} & \cmTP{15} & \cmFN{8} \\
+    \textbf{Real: sem falha} & \cmFP{3}  & \cmTN{7} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\clearpage
+\small
+\begin{longtable}{L{3.4cm}C{1.5cm}C{1.7cm}C{1.5cm}C{2.0cm}C{1.7cm}}
+  \caption{Detalhe por voo com falha --- \texttt{fft\_features}.}
+  \label{tab:voos_falha_fft} \\
+  \toprule
+  \textbf{Voo} & \textbf{Falha (s)} & \textbf{Detec.\ (s)} & \textbf{Lat.\ (s)} & \textbf{Resultado} & \textbf{FP antes} \\
+  \midrule
+  \endfirsthead
+  \multicolumn{6}{l}{\small\textit{(continuação da Tabela~\ref{tab:voos_falha_fft})}} \\
+  \toprule
+  \textbf{Voo} & \textbf{Falha (s)} & \textbf{Detec.\ (s)} & \textbf{Lat.\ (s)} & \textbf{Resultado} & \textbf{FP antes} \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{6}{r}{\small\textit{(continua na próxima página)}} \\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+  2018-07-18 \#1  & 115,3 & ---   & ---   & \resFN  & 69   \\
+  2018-07-18 \#2  & 72,4  & ---   & ---   & \resFN  & 264  \\
+  2018-07-18 EMR  & 115,6 & 117,8 & 2,17  & \resTP  & 755  \\
+  2018-07-18 EMR2 & 113,1 & 115,9 & 2,85  & \resTP  & 0    \\
+  2018-07-30 EMR  & 122,2 & 127,2 & 5,07  & \resTP  & 380  \\
+  2018-07-30 \#1  & 115,8 & 130,4 & 14,64 & \resTP  & 543  \\
+  2018-07-30 \#2  & 90,7  & ---   & ---   & \resFN  & 220  \\
+  2018-07-30 EMR2 & 116,2 & ---   & ---   & \resFN  & 0    \\
+  2018-07-30 EMR3 & 86,7  & 89,5  & 2,80  & \resTP  & 0    \\
+  2018-07-30 EMR4 & 132,5 & 154,5 & 21,99 & \resTP  & 74   \\
+  2018-07-30 EMR5 & 89,4  & 98,3  & 8,97  & \resTP  & 258  \\
+  2018-09-11 \#1  & 102,6 & 104,0 & 1,41  & \resTP  & 57   \\
+  2018-09-11 \#2  & 103,9 & ---   & ---   & \resFN  & 26   \\
+  2018-09-11 \#3  & 48,9  & ---   & ---   & \resFN  & 35   \\
+  2018-10-05 \#1  & 48,2  & 48,2  & 0,04  & \resTP  & 0    \\
+  2018-10-05 \#2  & 99,1  & 99,3  & 0,19  & \resTP  & 26   \\
+  2018-10-05 \#3  & 75,2  & ---   & ---   & \resFN  & 93   \\
+  2018-10-18 \#1  & 103,2 & 105,9 & 2,64  & \resTP  & 320  \\
+  2018-10-18 \#2  & 110,1 & ---   & ---   & \resFN  & 579  \\
+  2018-10-18 \#3  & 99,4  & 99,7  & 0,27  & \resTP  & 1455 \\
+  2018-10-18 \#4  & 97,3  & 100,1 & 2,80  & \resTP  & 75   \\
+  2018-10-18 \#5  & 100,3 & 100,7 & 0,39  & \resTP  & 654  \\
+  2018-10-18 \#6  & 101,6 & 103,8 & 2,25  & \resTP  & 693  \\
+\end{longtable}
+\normalsize
+
+\begin{table}[H]
+  \centering
+  \caption{Detalhe por voo sem falha --- \texttt{fft\_features}.}
+  \label{tab:voos_normal_fft}
+  \small
+  \begin{tabular}{L{5cm}C{3.5cm}C{2cm}}
+    \toprule
+    \textbf{Voo} & \textbf{Alarmes falsos (janelas)} & \textbf{Resultado} \\
+    \midrule
+    2018-07-18 sem-falha    & 0   & \resTN \\
+    2018-07-30 sem-falha    & 184 & \resFP \\
+    2018-09-11 \#1 sem-falha & 0   & \resTN \\
+    2018-09-11 \#2 sem-falha & 278 & \resFP \\
+    2018-09-11 \#3 sem-falha & 0   & \resTN \\
+    2018-10-05 \#1 sem-falha & 0   & \resTN \\
+    2018-10-05 \#2 sem-falha & 0   & \resTN \\
+    2018-10-05 \#3 sem-falha & 332 & \resFP \\
+    2018-10-05 \#4 sem-falha & 0   & \resTN \\
+    2018-10-18 sem-falha    & 0   & \resTN \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}
