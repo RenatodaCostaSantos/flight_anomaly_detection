@@ -1,0 +1,144 @@
+\documentclass[12pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage[top=2.2cm, bottom=2.2cm, left=2.8cm, right=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage[table]{xcolor}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{microtype}
+\usepackage{setspace}
+\setstretch{1.15}
+\captionsetup{font=small, labelfont=bf, skip=4pt}
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{1pt}
+\setlength{\parskip}{3pt}
+
+% Cores
+\definecolor{azul}    {RGB}{20,  60, 120}
+\definecolor{azulhd}  {RGB}{245,249,255}
+\definecolor{azulhd2} {RGB}{230,238,252}
+\definecolor{verdebg} {RGB}{220,240,220}
+\definecolor{verdedark}{RGB}{34, 120, 34}
+\definecolor{vermbg}  {RGB}{255,220,220}
+\definecolor{vermdark}{RGB}{160, 30, 30}
+
+% Células de matriz de confusão
+\newcommand{\cmTP}[1]{\cellcolor{verdebg}\color{verdedark}\textbf{TP\,=\,#1}}
+\newcommand{\cmTN}[1]{\cellcolor{verdebg}\color{verdedark}\textbf{TN\,=\,#1}}
+\newcommand{\cmFP}[1]{\cellcolor{vermbg}\color{vermdark}\textbf{FP\,=\,#1}}
+\newcommand{\cmFN}[1]{\cellcolor{vermbg}\color{vermdark}\textbf{FN\,=\,#1}}
+
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+\usepackage[colorlinks=true, linkcolor=azul, citecolor=azul]{hyperref}
+
+\begin{document}
+
+\title{\textbf{Detecção de Falha de Motor em VANTs com Aprendizado de Máquina}\\[4pt]
+       \large Resumo de Resultados}
+\author{}
+\date{}
+\maketitle
+\thispagestyle{empty}
+\vspace{-10pt}
+
+\begin{abstract}
+\noindent
+Este trabalho apresenta um sistema de detecção automática de falha de motor em voo para a aeronave não tripulada de asa fixa CarbonZ, com base em aprendizado de máquina não supervisionado. Dois modelos \textit{Isolation Forest} foram treinados com trilhas de \textit{features} distintas --- grandezas físicas (\texttt{all\_features}) e domínio da frequência (\texttt{fft\_features}) --- sobre 33 voos em formato ROS (${\sim}520$\,Hz). O modelo físico detectou 16/23 falhas com latência mediana de 3,15\,s e precisão de 0,983; o modelo espectral detectou 15/23 falhas com latência mediana de 2,64\,s, atuando como \textit{precursor} da falha ao custo de mais alarmes falsos.
+
+\smallskip
+\noindent\textbf{Palavras-chave}: Detecção de Anomalia, VANT, Falha de Motor, \textit{Isolation Forest}, FFT, \textit{Isolation Forest}.
+\end{abstract}
+
+\section{Introdução}
+
+Em voo autônomo, identificar a perda de tração com latência mínima viabiliza resposta de emergência eficaz (pouso de emergência ou autorrotação). O conjunto de dados conta com 33~voos registrados em formato ROS: 23 com falhas induzidas de motor e 10 voos normais, com dados de múltiplos sensores coletados a ${\sim}520$\,Hz.
+
+\section{Metodologia}
+
+A solução foi construída como um \textit{pipeline} Kedro completo, da ingestão dos tópicos ROS (alinhamento temporal via \texttt{merge\_asof}) ao treinamento. Duas trilhas paralelas de engenharia de \textit{features} foram desenvolvidas: (i)~\texttt{all\_features} --- grandezas físicas como energia específica, esforço de controle e razão de planeio, acrescidas de estatísticas em janelas deslizantes; (ii)~\texttt{fft\_features} --- potência de pico, entropia espectral e razão de alta frequência dos sinais IMU e magnetômetro. As 20 melhores \textit{features} foram selecionadas pelo $d$~de~Cohen. O detector escolhido foi o \textit{Isolation Forest} com janelas deslizantes de 20 amostras, regime não supervisionado, adequado à escassez de exemplos rotulados de falha.
+
+\section{Resultados}
+
+A Tabela~\ref{tab:metricas} apresenta as métricas de classificação calculadas sobre o conjunto de teste (últimos 30\% de cada voo, em ordem temporal), no nível de janela de 20 amostras.
+
+\begin{table}[H]
+  \centering
+  \caption{Métricas por modelo e classe (nível de janela de 20 amostras).}
+  \label{tab:metricas}
+  \small
+  \begin{tabular}{llccc}
+    \toprule
+    \textbf{Modelo} & \textbf{Classe} & \textbf{Precisão} & \textbf{Recall} & \textbf{F1} \\
+    \midrule
+    \rowcolor{azulhd}
+    \texttt{all\_features} & Normal (0) & 0{,}874 & 0{,}999 & 0{,}932 \\
+    \rowcolor{azulhd}
+    \texttt{all\_features} & Falha  (1) & 0{,}983 & 0{,}184 & 0{,}310 \\
+    \rowcolor{azulhd2}
+    \texttt{fft\_features} & Normal (0) & 0{,}856 & 0{,}955 & 0{,}903 \\
+    \rowcolor{azulhd2}
+    \texttt{fft\_features} & Falha  (1) & 0{,}402 & 0{,}158 & 0{,}227 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+O elevado \textit{recall} da classe Normal no \texttt{all\_features} (0{,}999) reflete o comportamento conservador do \textit{Isolation Forest} configurado com \texttt{contamination\,=\,0{,}03}: apenas 53 das 93.289 janelas normais são classificadas como anomalia, correspondendo a uma taxa de falso positivo por janela de apenas 0{,}057\%. Essa conservatividade se inverte na classe de falha --- o \textit{recall} de 0{,}184 indica que o modelo flagra somente as janelas onde os efeitos da falha já se manifestaram de forma inequívoca nas grandezas físicas. As janelas que ele detecta, porém, são quase todas reais: precisão de 0{,}983.
+
+O \texttt{fft\_features} apresenta comportamento distinto. Seu \textit{recall} para a classe Normal é menor (0{,}955), o que se traduz em volume muito maior de alarmes falsos por janela --- em alguns voos, centenas a mais de mil janelas são marcadas como anomalia \textit{antes} do momento oficial da falha. Esse padrão não é ruído aleatório: ele sugere que o modelo captura a degradação espectral progressiva do motor como precursor físico da falha, e não apenas suas consequências. O custo operacional é a menor confiabilidade por alarme (precisão de 0{,}402 na classe de falha).
+
+A Tabela~\ref{tab:voo} resume os indicadores de desempenho no nível de voo, e a Tabela~\ref{tab:cm} apresenta as matrizes de confusão correspondentes. Um voo é classificado como TP se o modelo emitiu ao menos um alarme durante o intervalo de falha, FN caso contrário; voos normais com ao menos um alarme figuram como FP.
+
+\begin{table}[H]
+  \centering
+  \caption{Resumo de desempenho no nível de voo.}
+  \label{tab:voo}
+  \small
+  \begin{tabular}{lcc}
+    \toprule
+    \textbf{Indicador} & \textbf{\texttt{all\_features}} & \textbf{\texttt{fft\_features}} \\
+    \midrule
+    Falhas detectadas     & 16/23 (69{,}6\,\%) & 15/23 (65{,}2\,\%) \\
+    Voos normais com FP   & 6/10 (60{,}0\,\%)  & 3/10 (30{,}0\,\%)  \\
+    Latência mediana      & 3{,}15\,s          & 2{,}64\,s          \\
+    Latência média        & 6{,}72\,s          & 4{,}57\,s          \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{Matrizes de confusão --- nível de voo.}
+  \label{tab:cm}
+  \small
+  \begin{tabular}{lcc@{\hspace{2em}}lcc}
+    \toprule
+    \multicolumn{3}{c}{\textbf{\texttt{all\_features}}}
+    & \multicolumn{3}{c}{\textbf{\texttt{fft\_features}}} \\
+    \cmidrule(r){1-3}\cmidrule(l){4-6}
+    & \textbf{Alarme} & \textbf{Silêncio}
+    & & \textbf{Alarme} & \textbf{Silêncio} \\
+    \textbf{Com falha} & \cmTP{16} & \cmFN{7}
+    & \textbf{Com falha} & \cmTP{15} & \cmFN{8} \\
+    \textbf{Sem falha}  & \cmFP{6}  & \cmTN{4}
+    & \textbf{Sem falha} & \cmFP{3}  & \cmTN{7} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Discussão}
+
+Os dois modelos capturam fenômenos físicos distintos com perfis de erro opostos. O \texttt{all\_features} reage às \textit{consequências} da falha --- queda de energia específica, divergência entre \textit{throttle} e velocidade, acúmulo de erros de controle --- sendo altamente conservador: cada alarme tem 98{,}3\,\% de chance de ser genuíno, mas o modelo silencia quando os efeitos ainda não se consolidaram, o que explica as 7 falhas perdidas. Em contraste, o \texttt{fft\_features} detecta a assinatura espectral da degradação \textit{antes} do momento oficial da falha, capturando o caos vibracional e a perda de pico de potência do motor. Esse comportamento de \textit{precursor} é evidenciado pelas centenas a milhares de janelas de alarme que antecedem a falha em alguns voos (e.g., 1.455 janelas no voo 2018-10-18~\#3), mas compromete a precisão por alarme (0{,}402) e inviabiliza seu uso isolado em operações com custo operacional elevado por falso positivo.
+
+Cabe destacar que o conjunto de dados é pequeno (33 voos) e o hiperparâmetro \texttt{contamination\,=\,0{,}03} foi escolhido de forma conservadora; um ajuste fino por validação cruzada temporal poderia melhorar o \textit{recall} da classe de falha sem sacrificar a especificidade. Ainda assim, mesmo na configuração atual, um sistema em cascata de dois estágios poderia ser útil: o \texttt{fft\_features} atuaria como detector precoce de baixo limiar e, ao emitir alarme, iniciaria uma janela de confirmação; o \texttt{all\_features} verificaria se os efeitos físicos se manifestaram dentro dessa janela antes de acionar a resposta de emergência. Essa arquitetura preservaria a latência reduzida do modelo espectral e a especificidade elevada do modelo físico. Um \textit{ensemble} com votação ponderada é uma alternativa mais simples, porém com menor interpretabilidade.
+
+\section{Conclusão}
+
+O trabalho demonstrou a viabilidade de detectar falha de motor em VANTs de asa fixa com latência mediana inferior a 4\,s usando aprendizado não supervisionado sobre \textit{features} físicas e espectrais. O \texttt{all\_features} é o mais confiável operacionalmente (precisão 0{,}983, 69{,}6\,\% de detecção); o \texttt{fft\_features} é mais veloz e atua como precursor (latência mediana 2{,}64\,s, apenas 30\,\% de falsos positivos em voos normais). Nenhum modelo isolado satisfaz simultaneamente os requisitos de baixa latência e alta especificidade. Como trabalho futuro, recomenda-se implementar a arquitetura em cascata proposta, ajustar o \texttt{contamination} por validação temporal e ampliar o conjunto de dados com novos voos para cobrir cenários de falha não representados.
+
+\end{document}
