@@ -12,7 +12,7 @@
 \usepackage{float}
 \usepackage{microtype}
 \usepackage{setspace}
-\setstretch{1.15}
+\setstretch{1.04}
 \captionsetup{font=small, labelfont=bf, skip=4pt}
 \setlength{\abovecaptionskip}{4pt}
 \setlength{\belowcaptionskip}{1pt}
@@ -35,7 +35,14 @@
 
 \newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
 
-\usepackage[colorlinks=true, linkcolor=azul, citecolor=azul]{hyperref}
+\usepackage{url}
+\usepackage[colorlinks=true, linkcolor=azul, citecolor=azul, urlcolor=azul]{hyperref}
+
+% Compacta espaçamento da lista de referências
+\makeatletter
+\renewcommand\@openbib@code{%
+  \itemsep 1pt \parsep 0pt \topsep 3pt \partopsep 0pt}
+\makeatother
 
 \begin{document}
 
@@ -57,15 +64,15 @@ Este trabalho apresenta um sistema de detecção automática de falha de motor e
 
 \section{Introdução}
 
-Em voo autônomo, identificar a perda de tração com latência mínima viabiliza resposta de emergência eficaz (pouso de emergência ou autorrotação). O conjunto de dados conta com 33~voos registrados em formato ROS: 23 com falhas induzidas de motor e 10 voos normais, com dados de múltiplos sensores coletados a ${\sim}520$\,Hz.
+Em voo autônomo, identificar a perda de tração com latência mínima viabiliza resposta de emergência eficaz (pouso de emergência ou autorrotação). O conjunto de dados conta com 33~voos registrados em formato ROS: 23 com falhas induzidas de motor e 10 voos normais, com dados de múltiplos sensores coletados a ${\sim}520$\,Hz \cite{keipour2019automatic}.
 
 \section{Metodologia}
 
-A solução foi construída como um \textit{pipeline} Kedro completo, da ingestão dos tópicos ROS (alinhamento temporal via \texttt{merge\_asof}) ao treinamento. Duas trilhas paralelas de engenharia de \textit{features} foram desenvolvidas: (i)~\texttt{all\_features} --- grandezas físicas como energia específica, esforço de controle e razão de planeio, acrescidas de estatísticas em janelas deslizantes; (ii)~\texttt{fft\_features} --- potência de pico, entropia espectral e razão de alta frequência dos sinais IMU e magnetômetro. As 20 melhores \textit{features} foram selecionadas pelo $d$~de~Cohen. O detector escolhido foi o \textit{Isolation Forest} com janelas deslizantes de 20 amostras, regime não supervisionado, adequado à escassez de exemplos rotulados de falha.
+A solução foi construída como um \textit{pipeline} Kedro completo \cite{kedro2020}, da ingestão dos tópicos ROS (alinhamento temporal via \texttt{merge\_asof}) ao treinamento. Duas trilhas paralelas de engenharia de \textit{features} foram desenvolvidas: (i)~\texttt{all\_features} --- grandezas físicas como energia específica, esforço de controle e razão de planeio, acrescidas de estatísticas em janelas deslizantes; (ii)~\texttt{fft\_features} --- potência de pico, entropia espectral e razão de alta frequência dos sinais IMU e magnetômetro. As 20 melhores \textit{features} foram selecionadas pelo $d$~de~Cohen \cite{cohen1988statistical}. O detector escolhido foi o \textit{Isolation Forest} \cite{liu2008isolation} com janelas deslizantes de 20 amostras, regime não supervisionado, adequado à escassez de exemplos rotulados de falha.
 
 \section{Resultados}
 
-A Tabela~\ref{tab:metricas} apresenta as métricas de classificação calculadas sobre o conjunto de teste (últimos 30\% de cada voo, em ordem temporal), no nível de janela de 20 amostras.
+A Tabela~\ref{tab:metricas} apresenta as métricas de classificação calculadas com a função \texttt{classification\_report} sobre o conjunto de teste (últimos 30\% de cada voo, em ordem temporal), no nível de janela de 20 amostras.
 
 \begin{table}[H]
   \centering
@@ -133,12 +140,17 @@ A Tabela~\ref{tab:voo} resume os indicadores de desempenho no nível de voo, e a
 
 \section{Discussão}
 
-Os dois modelos capturam fenômenos físicos distintos com perfis de erro opostos. O \texttt{all\_features} reage às \textit{consequências} da falha --- queda de energia específica, divergência entre \textit{throttle} e velocidade, acúmulo de erros de controle --- sendo altamente conservador: cada alarme tem 98{,}3\,\% de chance de ser genuíno, mas o modelo silencia quando os efeitos ainda não se consolidaram, o que explica as 7 falhas perdidas. Em contraste, o \texttt{fft\_features} detecta a assinatura espectral da degradação \textit{antes} do momento oficial da falha, capturando o caos vibracional e a perda de pico de potência do motor. Esse comportamento de \textit{precursor} é evidenciado pelas centenas a milhares de janelas de alarme que antecedem a falha em alguns voos (e.g., 1.455 janelas no voo 2018-10-18~\#3), mas compromete a precisão por alarme (0{,}402) e inviabiliza seu uso isolado em operações com custo operacional elevado por falso positivo.
+Os dois modelos capturam fenômenos físicos distintos com perfis de erro opostos. O \texttt{all\_features} reage às \textit{consequências} da falha (queda de energia, acúmulo de erros de controle), sendo conservador: cada alarme tem 98{,}3\,\% de chance de ser genuíno, mas o modelo silencia quando os efeitos ainda não se consolidaram. O \texttt{fft\_features} detecta a assinatura espectral da degradação \textit{antes} do momento oficial da falha; esse comportamento de precursor é evidenciado pelas centenas a milhares de janelas de alarme antecedendo a falha em alguns voos (e.g., 1.455 janelas no voo 2018-10-18~\#3), mas compromete a precisão por alarme (0{,}402) e inviabiliza seu uso isolado.
 
 Cabe destacar que o conjunto de dados é pequeno (33 voos) e o hiperparâmetro \texttt{contamination\,=\,0{,}03} foi escolhido de forma conservadora; um ajuste fino por validação cruzada temporal poderia melhorar o \textit{recall} da classe de falha sem sacrificar a especificidade. Ainda assim, mesmo na configuração atual, um sistema em cascata de dois estágios poderia ser útil: o \texttt{fft\_features} atuaria como detector precoce de baixo limiar e, ao emitir alarme, iniciaria uma janela de confirmação; o \texttt{all\_features} verificaria se os efeitos físicos se manifestaram dentro dessa janela antes de acionar a resposta de emergência. Essa arquitetura preservaria a latência reduzida do modelo espectral e a especificidade elevada do modelo físico. Um \textit{ensemble} com votação ponderada é uma alternativa mais simples, porém com menor interpretabilidade.
 
 \section{Conclusão}
 
 O trabalho demonstrou a viabilidade de detectar falha de motor em VANTs de asa fixa com latência mediana inferior a 4\,s usando aprendizado não supervisionado sobre \textit{features} físicas e espectrais. O \texttt{all\_features} é o mais confiável operacionalmente (precisão 0{,}983, 69{,}6\,\% de detecção); o \texttt{fft\_features} é mais veloz e atua como precursor (latência mediana 2{,}64\,s, apenas 30\,\% de falsos positivos em voos normais). Nenhum modelo isolado satisfaz simultaneamente os requisitos de baixa latência e alta especificidade. Como trabalho futuro, recomenda-se implementar a arquitetura em cascata proposta, ajustar o \texttt{contamination} por validação temporal e ampliar o conjunto de dados com novos voos para cobrir cenários de falha não representados.
+
+{\footnotesize
+\bibliographystyle{plain}
+\bibliography{refs}
+}
 
 \end{document}

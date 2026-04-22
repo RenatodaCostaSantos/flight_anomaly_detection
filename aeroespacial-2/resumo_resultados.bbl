@@ -1,0 +1,27 @@
+\begin{thebibliography}{1}
+
+\bibitem{cohen1988statistical}
+Jacob Cohen.
+\newblock {\em Statistical Power Analysis for the Behavioral Sciences}.
+\newblock Lawrence Erlbaum Associates, Hillsdale, NJ, 2 edition, 1988.
+
+\bibitem{keipour2019automatic}
+Azarakhsh Keipour, Mohammadreza Mousaei, and Sebastian Scherer.
+\newblock Automatic real-time anomaly detection for autonomous aerial vehicles.
+\newblock In {\em Proceedings of the IEEE International Conference on Robotics
+  and Automation (ICRA)}, pages 5679--5685, 2019.
+
+\bibitem{liu2008isolation}
+Fei~Tony Liu, Kai~Ming Ting, and Zhi-Hua Zhou.
+\newblock Isolation forest.
+\newblock In {\em Proceedings of the 8th IEEE International Conference on Data
+  Mining (ICDM)}, pages 413--422, 2008.
+
+\bibitem{kedro2020}
+{QuantumBlack, AI by McKinsey}.
+\newblock Kedro: A python framework for reproducible, maintainable and modular
+  data science code.
+\newblock \url{https://github.com/kedro-org/kedro}, 2020.
+\newblock Acesso em: abr. 2025.
+
+\end{thebibliography}
