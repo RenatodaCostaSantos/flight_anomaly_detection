@@ -11,7 +11,7 @@ class SensorReading(BaseModel):
     mag_x: float
     mag_y: float
     mag_z: float
-    aspd_meas: float
+    aspd_meas: float | None = None   # opcional: não está entre as features selecionadas
     alt_global: float
 
 class PredictRequest(BaseModel):

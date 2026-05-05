@@ -37,6 +37,16 @@ data_preparation:
   # Use 0.0 to drop only truly constant columns.
   # Increase (e.g. 0.01) to also discard near-constant signals.
   min_std_threshold: 0.0001
+  # Seconds of stable cruise data used to estimate the per-flight magnetometer
+  # calibration baseline (mag_x/y/z offset). The mean of this initial window is
+  # subtracted from the entire flight, making the model invariant to session-to-
+  # session calibration drift. Set to 0.0 to disable detrending.
+  detrend_seconds: 2.0
+
+fft_data_preparation:
+  cut_seconds: 1.0
+  min_std_threshold: 0.0001
+  detrend_seconds: 2.0
 
 feature_engineering:
   # Rolling window sizes in samples.
@@ -72,7 +82,8 @@ fft_model_training:
   max_features: 1.0
   # Number of top features selected via Cohen's d effect size
   n_top_features: 20
-  # Fraction of the combined dataset used for training (temporal split, no shuffle)
+  # Fraction of no_failure flights used for training (chronologically first).
+  # The remaining no_failure flights plus all failure flights form the test set.
   train_ratio: 0.7
   target_col: "target_fault"
   timestamp_col: "timestamp"
@@ -93,9 +104,10 @@ model_training:
 
   max_samples: 128
   max_features: 1.0
-  # Number of top features selected via Random Forest importance ranking
+  # Number of top features selected via Cohen's d effect size
   n_top_features: 20
-  # Fraction of the combined dataset used for training (temporal split, no shuffle)
+  # Fraction of no_failure flights used for training (chronologically first).
+  # The remaining no_failure flights plus all failure flights form the test set.
   train_ratio: 0.7
   target_col: "target_fault"
   timestamp_col: "timestamp"

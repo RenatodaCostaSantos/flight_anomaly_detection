@@ -13,10 +13,7 @@ pipeline: FFTInferencePipeline | None = None
 async def lifespan(app: FastAPI):
     """
     Carrega os artefatos de modelo quando o servidor inicia.
-    
-    Por que lifespan e não no topo do arquivo?
-    Porque o modelo demora para carregar (~1s). Com lifespan,
-    você garante que está pronto antes de aceitar requisições.
+  
     """
     global pipeline
     print("Carregando artefatos do modelo FFT...")
@@ -69,4 +66,12 @@ def predict(request: PredictRequest):
     ]
 
     anomaly_events = [e for e in events if e.is_anomaly]
-    first_anomaly
+    first_anomaly = anomaly_events[0].timestamp if anomaly_events else None
+
+    return PredictResponse(
+        flight_id = request.flight_id,
+        total_readings = len(request.readings),
+        anomalies_detected = len(anomaly_events),
+        first_anomaly_at = first_anomaly,
+        events = events,
+    )

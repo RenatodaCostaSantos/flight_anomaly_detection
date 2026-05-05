@@ -32,6 +32,11 @@ class FFTInferencePipeline:
         "aspd_meas", "alt_global"
     ]
 
+    # Magnetometer columns subject to calibration drift between sessions
+    MAG_COLS = ("mag_x", "mag_y", "mag_z")
+    # Duration of initial stable segment used as calibration baseline (seconds)
+    DETREND_SECONDS = 2.0
+
     def __init__(self):
         self._load_artifacts()
 
@@ -62,7 +67,7 @@ class FFTInferencePipeline:
         signals = [s for s in self.FFT_SIGNALS if s != "alt_global"]
 
         for signal in signals:
-            if signal not in df.columns:
+            if signal not in df.columns or df[signal].isna().all():
                 continue
             for window in self.ROLLING_WINDOWS:
                 df[f"{signal}_mean_{window}"] = (
@@ -78,7 +83,7 @@ class FFTInferencePipeline:
         e computa 3 descritores do espectro de frequência.
         """
         for signal in self.FFT_SIGNALS:
-            if signal not in df.columns:
+            if signal not in df.columns or df[signal].isna().all():
                 continue
             for window in self.FFT_WINDOWS:
                 peak_power_col = f"fft_peak_power_{signal}_{window}"
@@ -139,7 +144,7 @@ class FFTInferencePipeline:
         
         return np.array(X), np.array(ts)
     
-    def predict(self, df: pd.Dataframe) -> pd.Datraframe:
+    def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Pipeline completo de inferência.
         
@@ -156,29 +161,46 @@ class FFTInferencePipeline:
         df = df.copy().reset_index(drop=True)
 
         # 1. Filtrar início do voo (spin-up do sensor)
+        # Skip adaptativo: se o voo for curto, reduz o skip para garantir
+        # que sobrem linhas suficientes para o cálculo das janelas FFT.
+        min_required = self.FFT_WINDOWS[-1] + self.WINDOW_SIZE
         t0 = df["timestamp"].iloc[0]
-        df = df[df["timestamp"] >= t0 + self.SKIP_SECONDS].reset_index(drop=True)
 
-        if len(df) < self.FFT_WINDOWS[-1] + self.WINDOW_SIZE:
+        if len(df) < min_required:
             raise ValueError(
-                f"Dados insuficientes após filtrar os primeiros {self.SKIP_SECONDS}s. "
-                f"Necessário: {self.FFT_WINDOWS[-1] + self.WINDOW_SIZE} amostras."
+                f"Dados insuficientes: {len(df)} linhas (mínimo {min_required})."
             )
 
-        # 2. Feature engineering (deve ser idêntico ao treinamento)
+        rows_after_skip = (df["timestamp"] >= t0 + self.SKIP_SECONDS).sum()
+        if rows_after_skip >= min_required:
+            df = df[df["timestamp"] >= t0 + self.SKIP_SECONDS].reset_index(drop=True)
+        else:
+            df = df.tail(min_required).reset_index(drop=True)
+
+        # 2. Detrend magnetometer — remove calibration offset using the first
+        # DETREND_SECONDS of cruise data as baseline (mirrors detrend_magnetometer
+        # applied during training in data_preparation).
+        t0_detrend = df["timestamp"].iloc[0]
+        baseline_mask = df["timestamp"] <= t0_detrend + self.DETREND_SECONDS
+        for col in self.MAG_COLS:
+            if col in df.columns:
+                ref = df.loc[baseline_mask, col].mean() if baseline_mask.any() else df[col].iloc[:200].mean()
+                df[col] = df[col] - ref
+
+        # 3. Feature engineering (deve ser idêntico ao treinamento)
         df = self._compute_rolling_features(df)
         df = self._compute_fft_features(df)
 
-        # 3. Remover linhas com NaN (janelas incompletas no início)
+        # 4. Remover linhas com NaN (janelas incompletas no início)
         df = df.dropna(subset=self.selected_features).reset_index(drop=True)
 
-         # 4. Janelas deslizantes
-        X, timestamps = self._build_sliding_windows(df)
+        # 5. Janelas deslizantes
+        X, timestamps = self._build_sliding_window(df)
 
-        # 5. Normalização (com o scaler treinado — nunca fit novamente!)
+        # 6. Normalização (com o scaler treinado — nunca fit novamente!)
         X_scaled = self.scaler.transform(X)
 
-         # 6. Predição: -1 = anomalia, 1 = normal
+        # 7. Predição: -1 = anomalia, 1 = normal
         raw_preds = self.model.predict(X_scaled)
         scores = self.model.score_samples(X_scaled)  # quanto mais negativo, mais anômalo
 

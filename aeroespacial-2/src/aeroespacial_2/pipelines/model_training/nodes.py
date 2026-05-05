@@ -270,68 +270,112 @@ def build_training_data(
     timestamp_col: str,
     skip_seconds: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
-    """Combine all prepared flights, select features, create windows, and split.
+    """Combine prepared flights, select features, create windows, and split by flight type.
 
-    This is the first node in the model_training pipeline. It aggregates all
-    flights into a single dataset to train and evaluate a single global model
-    (as opposed to per-flight models).
+    This is the first node in the model_training pipeline. It implements pure
+    novelty detection: the Isolation Forest trains exclusively on normal (no_failure)
+    flights, learning only what healthy flight looks like. Failure flights and a
+    held-out portion of normal flights form the test set.
 
     Pipeline:
-    1. Skip initial transient phase (skip_seconds) from each flight.
-    2. Concatenate all flights.
-    3. Select top N features by Cohen's d effect size (fault vs normal distribution).
-    4. Create sliding-window feature matrix per flight (avoids cross-flight boundary windows).
-    5. Temporal train/test split.
+    1. Load all flights; skip initial transient phase (skip_seconds) per flight.
+    2. Sort flights alphabetically — filenames encode the recording date, so
+       alphabetical order is a reliable chronological proxy.
+    3. Feature selection: Cohen's d is computed on ALL flights combined (needs
+       both fault and normal labels to rank discriminative power).
+    4. Temporal split of no_failure flights: first train_ratio fraction → training;
+       remainder → test (validates false-positive rate on unseen normal data).
+    5. All failure flights → test only (never seen during training).
+    6. Build sliding-window matrices per flight to avoid cross-flight boundary artefacts.
 
-    **Why skip_seconds?**
-    Recordings begin mid-flight, with the aircraft descending from an above-cruise
-    altitude to its cruise setpoint (~50 m). During this descent, energy_specific,
-    alt_global and their rolling derivatives are outside the cruise distribution —
-    the same values they take during a motor failure. The Isolation Forest scores
-    these windows as anomalous, producing false alarms at the very start of each
-    flight. Skipping the first 15 s removes the transition phase while retaining
-    all cruise and fault data.
+    **Why train only on no_failure?**
+    Isolation Forest is a novelty detector: it learns the density of its training
+    distribution and flags points far from it. Training on contaminated data
+    (normal + fault windows mixed) shifts the learned "normal" distribution toward
+    the fault signature, degrading detection sensitivity. Training on pure normal
+    data means any deviation from healthy flight is correctly scored as anomalous.
+
+    **Why split no_failure flights temporally?**
+    A row-level split within a concatenated dataset does not guarantee that the
+    test set represents genuinely unseen flight conditions. A flight-level split
+    ensures the model is evaluated on complete flights recorded after its training
+    window — a more honest proxy for deployment generalisation.
 
     Args:
         prepared_flights: Dict from data_preparation (may contain callables from PartitionedDataset).
         window_size: Sliding window size in timesteps.
         n_top_features: Number of features to select.
-        train_ratio: Temporal train/test split fraction.
+        train_ratio: Fraction of no_failure flights used for training. The remaining
+            no_failure flights plus all failure flights form the test set.
         target_col: Binary fault label column name.
         timestamp_col: Timestamp column name.
         skip_seconds: Seconds to skip from the start of each flight before building
-            windows. Applied to both training and evaluation data.
-            0.0 (default) disables the skip.
+            windows. Applied to all flights.
 
     Returns:
         X_train, X_test, y_train, y_test, test_timestamps, selected_features
     """
-    dfs = []
-    for name, loader in prepared_flights.items():
+    # 1. Load all flights sorted alphabetically (chronological proxy via filename date)
+    sorted_names = sorted(prepared_flights.keys())
+    dfs_by_name: dict[str, pd.DataFrame] = {}
+    for name in sorted_names:
+        loader = prepared_flights[name]
         df = loader() if callable(loader) else loader
         if skip_seconds > 0.0:
             df = df[df[timestamp_col] >= skip_seconds].copy()
-        dfs.append(df)
+        dfs_by_name[name] = df
 
-    combined = pd.concat(dfs, join="inner", ignore_index=True)
+    # 2. Feature selection on all flights combined — needs fault labels for Cohen's d
+    combined = pd.concat(list(dfs_by_name.values()), join="inner", ignore_index=True)
     log.info("Combined dataset shape (after skip): %s", combined.shape)
-
     features = [c for c in combined.columns if c not in [target_col, timestamp_col]]
     top_features = select_top_features_effect_size(combined, features, target_col, n_top_features)
 
-    all_X, all_y, all_ts = [], [], []
-    for df in dfs:
+    # 3. Separate flight names by type
+    no_failure_names = [n for n in sorted_names if "no_failure" in n]
+    failure_names    = [n for n in sorted_names if "no_failure" not in n]
+
+    if not no_failure_names:
+        raise ValueError("No no_failure flights found. Cannot train a novelty detector.")
+    if not failure_names:
+        log.warning("No failure flights found — test set contains only normal data.")
+
+    # 4. Temporal split of no_failure flights
+    n_train = max(1, int(len(no_failure_names) * train_ratio))
+    train_names = no_failure_names[:n_train]
+    val_names   = no_failure_names[n_train:]   # held-out normal flights (FP validation)
+    test_names  = val_names + failure_names     # full test set (ordered chronologically)
+
+    log.info(
+        "Flight split — train (no_failure): %d | val (no_failure): %d | test (failure): %d",
+        len(train_names), len(val_names), len(failure_names),
+    )
+    log.info("Train flights: %s", train_names)
+    log.info("Test  flights: %s", test_names)
+
+    # 5. Build training windows — no_failure only
+    train_X_list, train_y_list = [], []
+    for name in train_names:
+        Xi, yi = create_windows(dfs_by_name[name], window_size, top_features, target_col)
+        train_X_list.append(Xi)
+        train_y_list.append(yi)
+    X_train = np.concatenate(train_X_list)
+    y_train = np.concatenate(train_y_list)
+
+    # 6. Build test windows — held-out normal + all failure flights
+    test_X_list, test_y_list, test_ts_list = [], [], []
+    for name in test_names:
+        df = dfs_by_name[name]
         Xi, yi = create_windows(df, window_size, top_features, target_col)
-        all_X.append(Xi)
-        all_y.append(yi)
-        all_ts.append(df[timestamp_col].values[window_size:])
-    X = np.concatenate(all_X)
-    y = np.concatenate(all_y)
-    timestamps = np.concatenate(all_ts)
+        test_X_list.append(Xi)
+        test_y_list.append(yi)
+        test_ts_list.append(df[timestamp_col].values[window_size:])
+    X_test         = np.concatenate(test_X_list)
+    y_test         = np.concatenate(test_y_list)
+    test_timestamps = np.concatenate(test_ts_list)
 
-    X_train, X_test, y_train, y_test = split_windows(X, y, train_ratio)
-    split_idx = int(len(timestamps) * train_ratio)
-    test_timestamps = timestamps[split_idx:]
-
-    log.info("X_train=%s | X_test=%s | features=%d", X_train.shape, X_test.shape, len(top_features))
+    log.info(
+        "X_train=%s (no_failure only) | X_test=%s | features=%d",
+        X_train.shape, X_test.shape, len(top_features),
+    )
     return X_train, X_test, y_train, y_test, test_timestamps, top_features

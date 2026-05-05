@@ -2,7 +2,8 @@
 
 Renames ROS topic columns to human-readable names, removes constant/redundant
 columns identified during EDA, cuts sensor initialization artifacts from the
-start of each flight, engineers tracking-error features, and filters out
+start of each flight, engineers tracking-error features, detrends magnetometer
+channels to remove session-to-session calibration offsets, and filters out
 columns with null or near-null variance across the flight.
 """
 import logging
@@ -252,6 +253,41 @@ def rename_final_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns={k: v for k, v in FINAL_RENAME.items() if k in df.columns})
 
 
+MAG_COLS: tuple[str, ...] = ("mag_x", "mag_y", "mag_z")
+
+
+def detrend_magnetometer(df: pd.DataFrame, detrend_seconds: float = 2.0) -> pd.DataFrame:
+    """Remove per-flight calibration offset from magnetometer channels.
+
+    Subtracts the mean of the first `detrend_seconds` of cruise data from
+    mag_x, mag_y, mag_z for the entire flight. This eliminates the absolute
+    offset that shifts between sessions due to sensor recalibration, making
+    the model invariant to inter-flight magnetometer drift.
+
+    Must be called after rename_final_columns() so that the mag_* column
+    names are already in their final standardised form.
+
+    Args:
+        df: DataFrame with finalised column names (mag_x, mag_y, mag_z present).
+        detrend_seconds: Duration of the initial stable segment used to
+            estimate the calibration baseline. Defaults to 2 s (≈200 rows
+            at 100 Hz). Falls back to the first 200 rows if fewer rows exist.
+
+    Returns:
+        DataFrame with zero-centred magnetometer channels.
+    """
+    if detrend_seconds <= 0.0:
+        return df
+    df = df.copy()
+    mask = df["timestamp"] <= detrend_seconds
+    for col in MAG_COLS:
+        if col not in df.columns:
+            continue
+        baseline = df.loc[mask, col].mean() if mask.any() else df[col].iloc[:200].mean()
+        df[col] = df[col] - baseline
+    return df
+
+
 def filter_low_variance_columns(
     df: pd.DataFrame,
     min_std: float = 0.0,
@@ -291,6 +327,7 @@ def prepare_flight(
     flight_name: str,
     cut_seconds: float = 1.0,
     min_std_threshold: float = 0.0,
+    detrend_seconds: float = 2.0,
 ) -> pd.DataFrame:
     """Complete preparation pipeline for a single preprocessed flight.
 
@@ -300,7 +337,8 @@ def prepare_flight(
     3. cut_initial_seconds        — remove sensor spin-up artifacts
     4. create_error_features      — add (commanded − measured) error signals
     5. rename_final_columns       — final standardized naming convention
-    6. filter_low_variance_columns — drop columns with std ≤ min_std_threshold
+    6. detrend_magnetometer       — remove per-flight calibration offset from mag_x/y/z
+    7. filter_low_variance_columns — drop columns with std ≤ min_std_threshold
 
     Args:
         df: Preprocessed DataFrame from data_ingestion.
@@ -309,6 +347,8 @@ def prepare_flight(
         min_std_threshold: Columns with std ≤ this value are dropped.
             Use 0.0 (default) to remove only truly constant columns;
             use a small positive value to also discard near-constant signals.
+        detrend_seconds: Seconds of stable baseline used to estimate and
+            remove the magnetometer calibration offset. Set to 0.0 to skip.
 
     Returns:
         Fully prepared DataFrame ready for model training.
@@ -320,6 +360,7 @@ def prepare_flight(
     df = rename_final_columns(df)
     if "target_fault" not in df.columns:
         df["target_fault"] = 0
+    df = detrend_magnetometer(df, detrend_seconds)
     df = filter_low_variance_columns(df, min_std_threshold)
     log.info("Prepared flight '%s' → shape %s", flight_name, df.shape)
     return df
@@ -329,6 +370,7 @@ def prepare_all_flights(
     preprocessed_flights: dict,
     cut_seconds: float = 1.0,
     min_std_threshold: float = 0.0,
+    detrend_seconds: float = 2.0,
 ) -> dict[str, pd.DataFrame]:
     """Apply the full preparation pipeline to all preprocessed flights.
 
@@ -341,6 +383,8 @@ def prepare_all_flights(
         min_std_threshold: Columns with std ≤ this value are dropped per flight.
             Use 0.0 to remove only truly constant columns; use a small positive
             value (e.g. 0.01) to also discard near-constant signals.
+        detrend_seconds: Seconds of stable baseline used to estimate and
+            remove the per-flight magnetometer calibration offset.
 
     Returns:
         Dict mapping flight names → fully prepared DataFrames.
@@ -348,7 +392,9 @@ def prepare_all_flights(
     result = {}
     for flight_name, loader in preprocessed_flights.items():
         df = loader() if callable(loader) else loader
-        result[flight_name] = prepare_flight(df, flight_name, cut_seconds, min_std_threshold)
+        result[flight_name] = prepare_flight(
+            df, flight_name, cut_seconds, min_std_threshold, detrend_seconds
+        )
 
     log.info("data_preparation complete: %d flights prepared", len(result))
     return result

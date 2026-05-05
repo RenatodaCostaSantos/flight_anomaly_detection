@@ -11,8 +11,9 @@ def create_pipeline(**kwargs) -> Pipeline:
                 func=prepare_all_fft_flights,
                 inputs=[
                     "fft_ready_flights",
-                    "params:data_preparation.cut_seconds",
-                    "params:data_preparation.min_std_threshold",
+                    "params:fft_data_preparation.cut_seconds",
+                    "params:fft_data_preparation.min_std_threshold",
+                    "params:fft_data_preparation.detrend_seconds",
                 ],
                 outputs="fft_prepared_flights",
                 name="prepare_all_fft_flights_node",

@@ -37,7 +37,7 @@ fft_ready_flights:
 
 fft_prepared_flights:
   type: partitions.PartitionedDataset
-  path: aeroespacial-2/data/03_primary/fft
+  path: aeroespacial-2/data/03_primary_fft
   dataset:
     type: pandas.CSVDataset
   filename_suffix: ".csv"
@@ -70,7 +70,7 @@ feature_engineered_flights:
 
 fft_feature_engineered_flights:
   type: partitions.PartitionedDataset
-  path: aeroespacial-2/data/04_feature/fft
+  path: aeroespacial-2/data/04_feature_fft
   dataset:
     type: pandas.CSVDataset
   filename_suffix: ".csv"
