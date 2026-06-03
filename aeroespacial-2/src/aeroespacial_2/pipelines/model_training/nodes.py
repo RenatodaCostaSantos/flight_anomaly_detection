@@ -194,7 +194,7 @@ def train_isolation_forest(
     )
     model.fit(X_train)
     log.info(
-        "IsolationForest trained | contamination=%.3f | n_estimators=%d | max_samples=%s | max_features=%s | X_train=%s",
+        "IsolationForest trained | contamination=%s | n_estimators=%d | max_samples=%s | max_features=%s | X_train=%s",
         contamination, n_estimators, max_samples, max_features, X_train.shape,
     )
     return model

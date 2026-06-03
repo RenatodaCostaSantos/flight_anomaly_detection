@@ -32,12 +32,6 @@ Airspeed (measured):
     in measured airspeed (0.5–5 Hz range). The oscillation character changes
     at partial or full motor failure.
 
-Altitude:
-    A time-domain indicator included as the only non-vibration feature.
-    Altitude changes monotonically during the failure event (the aircraft
-    loses thrust and begins to descend), providing a complementary signal
-    that can help the model identify motor failure even when spectral
-    changes are subtle.
 """
 import logging
 from pathlib import Path
@@ -66,9 +60,6 @@ FFT_RELEVANT_PATTERNS: list[str] = [
     # ── Airspeed (thrust ripple) ────────────────────────────────────────────
     "airspeed_field.measured",             # Airspeed oscillations from thrust ripple;
                                            #   frequency and amplitude shift at failure.
-    # ── Altitude (única feature time-domain; complementa as features espectrais) ──
-    "global_field.altitude",               # Altitude monotonicamente decrescente na falha;
-                                           #   única feature não-vibração incluída.
     # ── Failure label ───────────────────────────────────────────────────────
     "failure_status",                      # Target: binary motor failure flag.
 ]

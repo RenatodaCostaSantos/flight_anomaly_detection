@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UAV Motor Failure Detection</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <style>
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d2e;
+      --border:   #2d3250;
+      --text:     #e2e8f0;
+      --muted:    #718096;
+      --teal:     #4fd1c5;
+      --red:      #fc8181;
+      --yellow:   #f6e05e;
+      --green:    #68d391;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.75rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.05em; }
+    header .sub { color: var(--muted); font-size: 0.8rem; }
+
+    #status-badge {
+      margin-left: auto;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      background: var(--border);
+      color: var(--muted);
+      transition: background 0.3s, color 0.3s;
+    }
+    #status-badge.processing { background: #744210; color: var(--yellow); }
+    #status-badge.normal     { background: #1c4532; color: var(--green); }
+    #status-badge.anomaly    { background: #742a2a; color: var(--red); animation: pulse 0.8s infinite; }
+    #status-badge.done       { background: #1a365d; color: #90cdf4; }
+
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
+
+    main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 220px;
+      min-width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 1.25rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      overflow-y: auto;
+    }
+
+    .section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+
+    input[type="file"] {
+      width: 100%;
+      font-size: 0.78rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.4rem;
+      cursor: pointer;
+    }
+
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--teal);
+    }
+
+    #speed-val {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--teal);
+      min-width: 2.5rem;
+      text-align: right;
+    }
+
+    #start-btn {
+      width: 100%;
+      padding: 0.55rem;
+      background: var(--teal);
+      color: #0f1117;
+      border: none;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    #start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #start-btn:not(:disabled):hover { opacity: 0.85; }
+
+    /* ── Stats ── */
+    .stat { margin-bottom: 0.6rem; }
+    .stat .key   { font-size: 0.7rem; color: var(--muted); }
+    .stat .value {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat .value.alert { color: var(--red); }
+    .stat .value.good  { color: var(--green); }
+
+    /* ── Chart area ── */
+    #chart-area {
+      flex: 1;
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    #chart-title {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    #chart-wrap {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+
+    #score-chart { width: 100% !important; height: 100% !important; }
+
+    #waiting-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>UAV Motor Failure Detection</h1>
+    <span class="sub">Isolation Forest · all_features · F1 = 0.86</span>
+  </div>
+  <span id="status-badge">AGUARDANDO</span>
+</header>
+
+<main>
+  <aside>
+    <div>
+      <p class="section-label">Voo</p>
+      <label for="csv-file">Arquivo CSV</label>
+      <input type="file" id="csv-file" accept=".csv">
+    </div>
+
+    <div>
+      <p class="section-label">Velocidade</p>
+      <label>Simulação <span id="speed-val">10×</span></label>
+      <div class="speed-row">
+        <span style="font-size:0.7rem;color:var(--muted)">1×</span>
+        <input type="range" id="speed" min="1" max="200" value="10">
+        <span style="font-size:0.7rem;color:var(--muted)">200×</span>
+      </div>
+    </div>
+
+    <button id="start-btn" disabled>▶ Iniciar</button>
+
+    <div id="stats-panel">
+      <p class="section-label">Voo</p>
+      <div class="stat"><div class="key">Arquivo</div><div class="value" id="s-file">—</div></div>
+      <div class="stat"><div class="key">Duração</div><div class="value" id="s-dur">—</div></div>
+      <div class="stat"><div class="key">Predições</div><div class="value" id="s-preds">—</div></div>
+
+      <p class="section-label" style="margin-top:0.75rem">Detecção</p>
+      <div class="stat"><div class="key">Score atual</div><div class="value" id="s-score">—</div></div>
+      <div class="stat"><div class="key">Anomalias</div><div class="value" id="s-anom">—</div></div>
+      <div class="stat"><div class="key">Primeiro alerta</div><div class="value" id="s-first">—</div></div>
+      <div class="stat"><div class="key">Falha real</div><div class="value" id="s-fault">—</div></div>
+      <div class="stat"><div class="key">Latência</div><div class="value" id="s-lat">—</div></div>
+    </div>
+  </aside>
+
+  <div id="chart-area">
+    <div id="chart-title">Anomaly Score vs. Tempo</div>
+    <div id="chart-wrap">
+      <div id="waiting-msg">Selecione um CSV e clique em Iniciar</div>
+      <canvas id="score-chart" style="display:none"></canvas>
+    </div>
+  </div>
+</main>
+
+<script>
+// ─── Estado global ───────────────────────────────────────────────────────────
+const dataPoints  = [];   // {x: timestamp, y: score} — formato nativo da escala linear
+const anomFlags   = [];   // boolean alinhado com dataPoints
+let   faultStart  = null;
+let   chart       = null;
+let   streaming   = false;
+let   scoreMin    = Infinity;   // rastreia o menor score visto (expande eixo Y para baixo)
+let   scoreMax    = -Infinity;  // rastreia o maior score visto (expande eixo Y para cima)
+let   thresholdVal = null;
+
+// ─── Chart.js ────────────────────────────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById('score-chart').getContext('2d');
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: 'Score',
+        data: dataPoints,           // formato {x, y} — necessário para escala linear
+        segment: {
+          borderColor: ctx => anomFlags[ctx.p1DataIndex] ? '#fc8181' : '#4fd1c5',
+        },
+        pointRadius: 0,
+        borderWidth: 1.5,
+        tension: 0.15,
+        fill: false,
+      }],
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'linear',           // escala numérica contínua — anotações usam valor direto
+          ticks: {
+            color: '#718096',
+            maxTicksLimit: 10,
+            callback: v => `${v.toFixed(0)}s`,
+          },
+          grid: { color: '#2d3250' },
+        },
+        y: {
+          ticks: { color: '#718096' },
+          grid: { color: '#2d3250' },
+          title: { display: true, text: 'Score', color: '#718096', font: { size: 11 } },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        annotation: { annotations: {} },  // anotações adicionadas dinamicamente
+      },
+    },
+  });
+}
+
+// ─── Anotação do threshold de decisão ────────────────────────────────────────
+// model.offset_: pontos abaixo desta linha são classificados como anomalia
+function fitYAxis() {
+  if (!chart || !isFinite(scoreMin) || thresholdVal === null) return;
+  const PAD = 0.015;
+  const idealMin = Math.min(scoreMin, thresholdVal) - PAD;
+  const idealMax = Math.max(scoreMax, thresholdVal) + PAD;
+  // Só expande — nunca contrai durante o streaming (evita saltos visuais)
+  const curMin = chart.options.scales.y.min ?? Infinity;
+  const curMax = chart.options.scales.y.max ?? -Infinity;
+  if (idealMin < curMin || idealMax > curMax) {
+    chart.options.scales.y.min = Math.min(idealMin, curMin);
+    chart.options.scales.y.max = Math.max(idealMax, curMax);
+  }
+}
+
+function addThresholdAnnotation(threshold) {
+  if (!chart) return;
+  thresholdVal = threshold;
+  // Range inicial apertado centrado no threshold, antes de qualquer score chegar
+  chart.options.scales.y.min = threshold - 0.05;
+  chart.options.scales.y.max = threshold + 0.15;
+  chart.options.plugins.annotation.annotations.thresholdLine = {
+    type: 'line',
+    scaleID: 'y',
+    value: threshold,
+    borderColor: 'rgba(246, 224, 94, 0.6)',
+    borderWidth: 1,
+    borderDash: [4, 3],
+    label: {
+      display: true,
+      content: `Threshold  ${threshold.toFixed(3)}`,
+      color: '#f6e05e',
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      font: { size: 10 },
+      position: 'end',
+    },
+  };
+  chart.update('none');
+}
+
+// ─── Anotação da falha real ───────────────────────────────────────────────────
+function addFaultAnnotation(ts) {
+  if (!chart || ts === null) return;
+  chart.options.plugins.annotation.annotations.faultLine = {
+    type: 'line',
+    scaleID: 'x',
+    value: ts,              // número direto — funciona com escala linear desde o início
+    borderColor: '#f6e05e',
+    borderWidth: 1.5,
+    borderDash: [5, 4],
+    label: {
+      display: true,
+      content: `Falha real t=${ts.toFixed(1)}s`,
+      color: '#f6e05e',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      font: { size: 10 },
+      position: 'start',
+    },
+  };
+  chart.update('none');
+}
+
+// ─── Atualização de stats ─────────────────────────────────────────────────────
+function $id(id) { return document.getElementById(id); }
+
+function setStatus(state, text) {
+  const badge = $id('status-badge');
+  badge.className = state;
+  badge.textContent = text;
+}
+
+function updateStats(point, totalAnom, firstAnom) {
+  const score = point.score;
+  const el = $id('s-score');
+  el.textContent = score.toFixed(4);
+  el.className = 'value ' + (point.is_anomaly ? 'alert' : 'good');
+
+  if (totalAnom !== undefined) {
+    $id('s-anom').textContent = totalAnom;
+  }
+  if (firstAnom !== null && firstAnom !== undefined) {
+    $id('s-first').textContent = `t = ${firstAnom.toFixed(2)}s`;
+
+    if (faultStart !== null) {
+      const lat = firstAnom - faultStart;
+      const latEl = $id('s-lat');
+      latEl.textContent = `${lat > 0 ? '+' : ''}${lat.toFixed(3)}s`;
+      latEl.className = 'value ' + (lat < 5 ? 'good' : lat < 30 ? '' : 'alert');
+    }
+  }
+}
+
+// ─── Parsing do stream SSE ────────────────────────────────────────────────────
+// O servidor envia eventos no formato:
+//   data: {"type":"batch","points":[...]}\n\n
+// Como usamos fetch() (não EventSource), precisamos fazer o parse manualmente.
+function parseSseChunk(raw) {
+  const events = [];
+  for (const block of raw.split('\n\n')) {
+    const dataLine = block.split('\n').find(l => l.startsWith('data:'));
+    if (!dataLine) continue;
+    try {
+      events.push(JSON.parse(dataLine.slice(5).trim()));
+    } catch { /* ignora JSON inválido */ }
+  }
+  return events;
+}
+
+// ─── Handlers por tipo de evento ─────────────────────────────────────────────
+let anomalyCount = 0;
+let firstAnomalyTs = null;
+
+function handleEvent(event) {
+  switch (event.type) {
+    case 'processing':
+      setStatus('processing', 'PROCESSANDO…');
+      break;
+
+    case 'meta':
+      faultStart = event.fault_start;
+      $id('s-file').textContent  = event.flight_id;
+      $id('s-dur').textContent   = `${event.duration.toFixed(1)}s`;
+      $id('s-preds').textContent = event.n_predictions;
+      addThresholdAnnotation(event.threshold);
+      if (faultStart !== null) {
+        $id('s-fault').textContent = `t = ${faultStart.toFixed(2)}s`;
+        addFaultAnnotation(faultStart);
+      }
+      break;
+
+    case 'batch':
+      for (const p of event.points) {
+        dataPoints.push({ x: p.timestamp, y: p.score });
+        anomFlags.push(p.is_anomaly);
+        if (p.score < scoreMin) scoreMin = p.score;
+        if (p.score > scoreMax) scoreMax = p.score;
+        if (p.is_anomaly) {
+          anomalyCount++;
+          if (firstAnomalyTs === null) firstAnomalyTs = p.timestamp;
+        }
+      }
+      fitYAxis();
+      chart.update('none');
+      setStatus(
+        event.points.at(-1).is_anomaly ? 'anomaly' : 'normal',
+        event.points.at(-1).is_anomaly ? '⚠ ANOMALIA' : '✓ NORMAL',
+      );
+      updateStats(event.points.at(-1), anomalyCount, firstAnomalyTs);
+      break;
+
+    case 'done':
+      setStatus('done', 'CONCLUÍDO');
+      streaming = false;
+      $id('start-btn').disabled = false;
+      $id('start-btn').textContent = '▶ Novo voo';
+      break;
+
+    case 'error':
+      setStatus('anomaly', 'ERRO');
+      alert(`Erro: ${event.message}`);
+      streaming = false;
+      $id('start-btn').disabled = false;
+      break;
+  }
+}
+
+// ─── Iniciar simulação ────────────────────────────────────────────────────────
+async function startStream(file, speed) {
+  // Reseta estado
+  dataPoints.length = 0;
+  anomFlags.length  = 0;
+  anomalyCount  = 0;
+  firstAnomalyTs = null;
+  faultStart    = null;
+  scoreMin      = Infinity;
+  scoreMax      = -Infinity;
+  thresholdVal  = null;
+  ['s-file','s-dur','s-preds','s-score','s-anom','s-first','s-fault','s-lat']
+    .forEach(id => { $id(id).textContent = '—'; $id(id).className = 'value'; });
+
+  // Prepara gráfico
+  if (chart) {
+    chart.destroy();
+    chart = null;
+  }
+  $id('waiting-msg').style.display = 'none';
+  $id('score-chart').style.display = 'block';
+  initChart();
+
+  // Envia arquivo via multipart/form-data
+  const form = new FormData();
+  form.append('file', file);
+  form.append('speed', speed);
+
+  const response = await fetch('/stream', { method: 'POST', body: form });
+  if (!response.ok) {
+    alert(`Erro HTTP ${response.status}`);
+    return;
+  }
+
+  // Lê o stream chunk a chunk
+  const reader  = response.body.getReader();
+  const decoder = new TextDecoder();
+  let   buffer  = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Divide em blocos SSE completos (separados por \n\n)
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();  // guarda último bloco incompleto
+
+    for (const part of parts) {
+      const events = parseSseChunk(part + '\n\n');
+      events.forEach(handleEvent);
+    }
+  }
+}
+
+// ─── Wiring dos controles ────────────────────────────────────────────────────
+const csvInput  = $id('csv-file');
+const speedSlider = $id('speed');
+const startBtn  = $id('start-btn');
+
+csvInput.addEventListener('change', () => {
+  startBtn.disabled = csvInput.files.length === 0;
+});
+
+speedSlider.addEventListener('input', () => {
+  $id('speed-val').textContent = `${speedSlider.value}×`;
+});
+
+startBtn.addEventListener('click', async () => {
+  if (streaming || !csvInput.files[0]) return;
+  streaming = true;
+  startBtn.disabled = true;
+  startBtn.textContent = '⏳ Processando…';
+
+  try {
+    await startStream(csvInput.files[0], parseFloat(speedSlider.value));
+  } catch (err) {
+    setStatus('anomaly', 'ERRO');
+    console.error(err);
+    streaming = false;
+    startBtn.disabled = false;
+    startBtn.textContent = '▶ Novo voo';
+  }
+});
+</script>
+</body>
+</html>

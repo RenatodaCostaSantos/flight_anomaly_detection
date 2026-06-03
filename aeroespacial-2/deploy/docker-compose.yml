@@ -1,0 +1,23 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+
+    # Modelos montados como volume, não copiados para a imagem.
+    # Por que? Modelos podem ser atualizados sem rebuild da imagem.
+    # :ro = read-only — o container não precisa escrever nos modelos.
+    volumes:
+      - ../data/06_models:/app/models:ro
+
+    environment:
+      - MODELS_DIR=/app/models
+    # Healthcheck: Docker reinicia o container se /health parar de responder
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  
