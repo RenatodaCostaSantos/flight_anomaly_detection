@@ -20,7 +20,7 @@ Detect motor failure as early as possible after it occurs, using only onboard se
 
 ## Dataset
 
-**ALFA — Autonomous aircraft Loss-of-control Flight Analysis**
+**AirLab Failure and Anomaly (ALFA) Dataset**
 [https://theairlab.org/alfa-dataset/](https://theairlab.org/alfa-dataset/)
 
 | Attribute | Detail |
@@ -29,10 +29,10 @@ Detect motor failure as early as possible after it occurs, using only onboard se
 | Period | July–October 2018 |
 | Failure flights | Induced motor failure, with and without emergency recovery trajectory (EMR traj) |
 | Normal flights | Reference flights with no failure |
-| Format | One CSV per flight in `aeroespacial-2/data/03_primary/` |
+| Format | One CSV per flight in `aeroespacial-2/data/04_feature/` |
 | Signal source | ROS topics merged by `merge_asof` in time |
 
-The dataset contains ~30 flights covering different failure scenarios. Each row represents a time instant and each column a sensor channel or derived feature.
+The dataset contains 47 flights covering different failure scenarios. Each row represents a time instant and each column a sensor channel or derived feature.
 
 > **Setup:** place the original raw CSV files from the ALFA dataset into `aeroespacial-2/data/01_raw/` before running the pipelines.
 
