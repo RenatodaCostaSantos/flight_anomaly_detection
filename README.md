@@ -1,155 +1,159 @@
 # UAV Motor Failure Detection
 
-![Demo do deploy — detecção de falha em tempo real](assets/demo.gif)
+![Deploy demo — real-time failure detection](assets/demo.gif)
 
 ---
 
-## Visão geral
+## Overview
 
-Sistema de detecção de falhas de motor em VANTs (Veículos Aéreos Não Tripulados) de asa fixa, desenvolvido com abordagem não-supervisionada. O modelo analisa dados de telemetria em tempo real e emite um alerta de anomalia assim que os padrões de voo divergem do comportamento normal — sem exigir exemplos rotulados de falha para treinar.
+Unsupervised motor failure detection system for fixed-wing UAVs. The model analyzes telemetry data in real time and raises an anomaly alert as soon as flight patterns diverge from normal behavior — no labeled failure examples required for training.
 
-**Melhor resultado:** Isolation Forest · all_features · F1 = 0.86 · Latência de detecção = 0.14 s
+**Best result:** Isolation Forest · all_features · F1 = 0.86 · Detection latency = 0.14 s
 
 ---
 
-## Objetivo
+## Objective
 
-Detectar a falha do motor o mais cedo possível após ela ocorrer, usando exclusivamente dados de sensores disponíveis a bordo (IMU, magnetômetro, GPS, pressão, throttle, etc.). O modelo deve generalizar entre voos distintos e operar com latência compatível com sistemas de emergência de bordo.
+Detect motor failure as early as possible after it occurs, using only onboard sensor data (IMU, magnetometer, GPS, airspeed, throttle, etc.). The model must generalize across different flights and operate with latency compatible with onboard emergency systems.
 
 ---
 
 ## Dataset
 
 **ALFA — Autonomous aircraft Loss-of-control Flight Analysis**
+[https://theairlab.org/alfa-dataset/](https://theairlab.org/alfa-dataset/)
 
-| Atributo | Detalhe |
+| Attribute | Detail |
 |---|---|
-| Aeronave | CarbonZ (asa fixa) |
-| Período | Julho–Outubro de 2018 |
-| Voos com falha | Falha de motor induzida, com e sem trajetória de emergência (EMR traj) |
-| Voos normais | Voos de referência sem falha |
-| Formato | CSVs por voo em `aeroespacial-2/data/03_primary/` |
-| Fonte dos sinais | Tópicos ROS mergeados por `merge_asof` no tempo |
+| Aircraft | CarbonZ (fixed-wing) |
+| Period | July–October 2018 |
+| Failure flights | Induced motor failure, with and without emergency recovery trajectory (EMR traj) |
+| Normal flights | Reference flights with no failure |
+| Format | One CSV per flight in `aeroespacial-2/data/03_primary/` |
+| Signal source | ROS topics merged by `merge_asof` in time |
 
-O dataset contém ~30 voos cobrindo diferentes cenários de falha. Cada linha representa um instante de tempo e cada coluna um canal de sensor ou feature derivada.
+The dataset contains ~30 flights covering different failure scenarios. Each row represents a time instant and each column a sensor channel or derived feature.
+
+> **Setup:** place the original raw CSV files from the ALFA dataset into `aeroespacial-2/data/01_raw/` before running the pipelines.
 
 ---
 
-## Instalação do ambiente virtual
+## Environment setup
 
-O projeto usa [Poetry](https://python-poetry.org/) para gerenciar dependências. Execute todos os comandos a partir da **raiz do repositório** (onde fica o `pyproject.toml`).
+The project uses [Poetry](https://python-poetry.org/) to manage dependencies. Run all commands from the **repository root** (where `pyproject.toml` lives).
 
-### Pré-requisito: Poetry instalado
+### Prerequisite: install Poetry
 
 ```bash
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
-Verifique a instalação:
+Verify:
 
 ```bash
 poetry --version
 ```
 
-### Instalar as dependências
+### Install dependencies
 
 ```bash
 poetry install
 ```
 
-Isso cria o ambiente virtual em `.venv/` e instala o pacote `aeroespacial_2` em modo editável, tornando-o importável nos notebooks e nas pipelines.
+This creates the virtual environment in `.venv/` and installs the `aeroespacial_2` package in editable mode, making it importable from notebooks and pipelines.
 
-### Ativar o ambiente
+### Activate the environment
 
 ```bash
-poetry shell
+eval $(poetry env activate)
 ```
 
-Ou prefixar qualquer comando com `poetry run <comando>`.
+Or prefix any command with `poetry run <command>`.
 
 ---
 
-## Pipelines Kedro
+## Kedro pipelines
 
-O projeto possui dois tracks de pipelines, cada um com sua estratégia de features. Todos os comandos abaixo são executados na **raiz do repositório**.
+The project has two pipeline tracks, each with its own feature strategy. All commands below are run from the **repository root**.
 
-### Track 1 — All Features (features físicas)
+### Track 1 — All Features (physics-based features)
 
-Pipeline completa com features baseadas em física de voo (energia específica, altitude, erro de controle, etc.). Documentada nos notebooks `aeroespacial-2/notebooks/all_features/`.
+Full pipeline with features grounded in flight physics (specific energy, altitude, control error, etc.). Documented in `aeroespacial-2/notebooks/all_features/`.
 
 ```
 data_ingestion → data_preparation → feature_engineering → model_training
 ```
 
-| Pipeline | Comando | O que faz |
+| Pipeline | Command | What it does |
 |---|---|---|
-| `data_ingestion` | `kedro run --pipeline=data_ingestion` | Merge dos tópicos ROS de cada voo em um único DataFrame alinhado no tempo; filtragem de colunas de ruído |
-| `data_preparation` | `kedro run --pipeline=data_preparation` | Renomeia colunas ROS, remove redundâncias, descarta o primeiro segundo e cria 6 features de erro (comandado − medido) |
-| `feature_engineering` | `kedro run --pipeline=feature_engineering` | Calcula features físicas: energia específica total, variação de altitude e rolling statistics sobre todos os sinais |
-| `model_training` | `kedro run --pipeline=model_training` | Seleção de features, treinamento do Isolation Forest e avaliação por voo; artefatos salvos em `data/06_models/` |
+| `data_ingestion` | `kedro run --pipeline=data_ingestion` | Merges all ROS topics from each flight into a single time-aligned DataFrame; filters noise columns |
+| `data_preparation` | `kedro run --pipeline=data_preparation` | Renames ROS columns, removes redundant ones, trims the first second, and creates 6 error features (commanded − measured) |
+| `feature_engineering` | `kedro run --pipeline=feature_engineering` | Computes physics-based features: total specific energy, altitude variation, and rolling statistics over all signals |
+| `model_training` | `kedro run --pipeline=model_training` | Feature selection, Isolation Forest training, and per-flight evaluation; artifacts saved to `data/06_models/` |
 
-Para rodar a pipeline completa de uma vez:
+To run the full track at once:
 
 ```bash
 kedro run
 ```
 
-### Track 2 — FFT Features (features espectrais)
+### Track 2 — FFT Features (spectral features)
 
-Pipeline alternativa com features espectrais sobre os 7 sinais com vínculo físico direto à frequência de rotação do motor (IMU, magnetômetro, velocidade do ar). Documentada nos notebooks `aeroespacial-2/notebooks/fft_features/`.
+Alternative pipeline with spectral features over the 7 signals with a direct physical link to motor rotation frequency (IMU, magnetometer, airspeed). Documented in `aeroespacial-2/notebooks/fft_features/`.
 
 ```
 fft_ingestion → fft_data_preparation → fft_feature_engineering → fft_model_training
 ```
 
-| Pipeline | Comando | O que faz |
+| Pipeline | Command | What it does |
 |---|---|---|
-| `fft_ingestion` | `kedro run --pipeline=fft_ingestion` | Carrega apenas os sinais com periodicidade ligada ao motor |
-| `fft_data_preparation` | `kedro run --pipeline=fft_data_preparation` | Mesmo fluxo do track 1, restrito ao subconjunto FFT |
-| `fft_feature_engineering` | `kedro run --pipeline=fft_feature_engineering` | Features espectrais (FFT) e rolling statistics sobre os 7 sinais do motor |
-| `fft_model_training` | `kedro run --pipeline=fft_model_training` | Treinamento e avaliação do Isolation Forest sobre features espectrais |
+| `fft_ingestion` | `kedro run --pipeline=fft_ingestion` | Loads only signals with motor-linked periodicity |
+| `fft_data_preparation` | `kedro run --pipeline=fft_data_preparation` | Same flow as Track 1, restricted to the FFT subset |
+| `fft_feature_engineering` | `kedro run --pipeline=fft_feature_engineering` | Spectral (FFT) and rolling features over the 7 motor signals |
+| `fft_model_training` | `kedro run --pipeline=fft_model_training` | Isolation Forest training and evaluation over spectral features |
 
-### Visualizar o grafo de pipelines
+### Visualize the pipeline graph
 
 ```bash
 kedro viz
 ```
 
-### Rodar os notebooks
+### Run the notebooks
 
 ```bash
 poetry run jupyter lab
 ```
 
-Os notebooks estão em `aeroespacial-2/notebooks/` e já têm acesso ao pacote `aeroespacial_2` após o `poetry install`. Cada notebook documenta uma etapa da pipeline com exemplos passo a passo e visualizações.
+Notebooks are in `aeroespacial-2/notebooks/` and have access to the `aeroespacial_2` package after `poetry install`. Each notebook documents one pipeline stage with step-by-step examples and visualizations.
 
 ---
 
 ## Deploy
 
-A API de inferência em tempo real está em `aeroespacial-2/deploy/`. Consulte o [README do deploy](aeroespacial-2/deploy/README.md) para instruções de como subir o servidor local e o container Docker.
+The real-time inference API lives in `aeroespacial-2/deploy/`. See the [deploy README](aeroespacial-2/deploy/README.md) for instructions on running the local server and the Docker container.
 
 ---
 
-## Estrutura
+## Structure
 
 ```
 .
-├── pyproject.toml                  # dependências e configuração Kedro
+├── pyproject.toml                  # dependencies and Kedro configuration
 ├── aeroespacial-2/
-│   ├── conf/                       # parâmetros e catálogo do Kedro
+│   ├── conf/                       # Kedro parameters and catalog
 │   ├── data/
-│   │   ├── 03_primary/             # voos preparados (all features)
-│   │   ├── 04_feature/             # features engineered (all features)
-│   │   ├── 03_primary_fft/         # voos preparados (FFT)
-│   │   ├── 04_feature_fft/         # features engineered (FFT)
-│   │   ├── 06_models/              # modelos e scalers treinados
-│   │   └── 07_model_output/        # métricas de avaliação
+│   │   ├── 01_raw/                 # ← place ALFA raw CSV files here
+│   │   ├── 03_primary/             # prepared flights (all features)
+│   │   ├── 04_feature/             # engineered features (all features)
+│   │   ├── 03_primary_fft/         # prepared flights (FFT)
+│   │   ├── 04_feature_fft/         # engineered features (FFT)
+│   │   ├── 06_models/              # trained models and scalers
+│   │   └── 07_model_output/        # evaluation metrics
 │   ├── notebooks/
-│   │   ├── all_features/           # exploração e documentação do track 1
-│   │   └── fft_features/           # exploração e documentação do track 2
-│   ├── src/aeroespacial_2/         # código das pipelines Kedro
-│   └── deploy/                     # API FastAPI + interface web
+│   │   ├── all_features/           # exploration and docs for Track 1
+│   │   └── fft_features/           # exploration and docs for Track 2
+│   ├── src/aeroespacial_2/         # Kedro pipeline code
+│   └── deploy/                     # FastAPI + web interface
 └── assets/
-    └── demo.gif                    # demo da interface de detecção em tempo real
+    └── demo.gif                    # real-time detection demo
 ```
